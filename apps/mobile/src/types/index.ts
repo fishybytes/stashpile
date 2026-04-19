@@ -1,5 +1,23 @@
 export type Source = 'reddit' | 'hackernews' | 'rss';
 
+export interface AskRedditPost {
+  postId: string;
+  title: string;
+  score: number;
+  numComments: number;
+  fetchedAt: number;
+}
+
+export interface AskRedditComment {
+  commentId: string;
+  postId: string;
+  parentId: string | null;
+  body: string;
+  score: number;
+  depth: number;
+  fetchedAt: number;
+}
+
 export interface Article {
   id: string;
   source: Source;
