@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  AppState,
   Dimensions,
   PanResponder,
   Pressable,
@@ -60,7 +61,9 @@ export function SwipeFeed() {
   // Mutable refs — safe to read from PanResponder without stale closures
   const seenIds = useRef(new Set<string>());
   const history = useRef<string[]>([]);
-  const viewStart = useRef(0);
+  const viewStart = useRef(0);         // timestamp of current active segment
+  const viewAccumulated = useRef(0);   // ms already counted before last pause
+  const viewPaused = useRef(false);    // true while app is backgrounded or sheet is open
   const allCommentsRef = useRef<AskRedditComment[]>([]);
   const currentIdRef = useRef<string | null>(null);
   const nextGlobalIdRef = useRef<string | null>(null);
@@ -92,12 +95,28 @@ export function SwipeFeed() {
     nextGlobalIdRef.current = nextG?.commentId ?? null;
   }
 
+  function pauseViewTimer() {
+    if (viewPaused.current || !viewStart.current) return;
+    viewAccumulated.current += Date.now() - viewStart.current;
+    viewPaused.current = true;
+  }
+
+  function resumeViewTimer() {
+    if (!viewPaused.current) return;
+    viewStart.current = Date.now();
+    viewPaused.current = false;
+  }
+
   function flushCurrentView() {
     const cid = currentIdRef.current;
     if (!cid) return;
     const c = allCommentsRef.current.find(x => x.commentId === cid);
     if (!c) return;
-    const elapsed = Date.now() - viewStart.current;
+    const activeSegment = !viewPaused.current && viewStart.current > 0
+      ? Date.now() - viewStart.current
+      : 0;
+    // Cap at 45s — longer than that is idle/backgrounded, not genuine reading
+    const elapsed = Math.min(45_000, viewAccumulated.current + activeSegment);
     if (elapsed > 500) {
       recordCommentView(c.commentId, c.postId, elapsed);
       postEvent(c.commentId, 'view', elapsed);
@@ -133,6 +152,8 @@ export function SwipeFeed() {
 
     flushCurrentView();
     seenIds.current.add(commentId);
+    viewAccumulated.current = 0;
+    viewPaused.current = false;
     viewStart.current = Date.now();
     if (addToHistory) history.current.push(commentId);
     currentIdRef.current = commentId;
@@ -243,6 +264,14 @@ export function SwipeFeed() {
       setSyncing(false);
     }
   }
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'background' || state === 'inactive') pauseViewTimer();
+      else if (state === 'active') resumeViewTimer();
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     const saved = getSetting('fontSize') as FontSizeKey | null;
@@ -373,7 +402,7 @@ export function SwipeFeed() {
                 ? <ActivityIndicator color="#8b949e" size="small" />
                 : <Text style={styles.topBarBtnText}>↻</Text>}
             </Pressable>
-            <Pressable style={styles.topBarBtn} onPress={() => setSettingsVisible(true)}>
+            <Pressable style={styles.topBarBtn} onPress={() => { pauseViewTimer(); setSettingsVisible(true); }}>
               <Text style={styles.topBarBtnText}>⚙</Text>
             </Pressable>
           </View>
@@ -382,14 +411,14 @@ export function SwipeFeed() {
 
       <SettingsSheet
         visible={settingsVisible}
-        onClose={() => setSettingsVisible(false)}
+        onClose={() => { setSettingsVisible(false); resumeViewTimer(); }}
         fontSize={fontSizeKey}
         onFontSizeChange={handleFontSizeChange}
         onOpenSaved={() => { setSettingsVisible(false); setSavedVisible(true); }}
       />
       <SavedSheet
         visible={savedVisible}
-        onClose={() => setSavedVisible(false)}
+        onClose={() => { setSavedVisible(false); resumeViewTimer(); }}
         onNavigate={(id) => { history.current.push(id); showComment(id); }}
       />
     </View>
