@@ -153,7 +153,6 @@ resource "aws_instance" "backend" {
   user_data = base64encode(templatefile("${path.module}/userdata.sh", {
     environment = var.environment
     api_domain  = var.api_domain
-    admin_email = var.admin_email
     sync_bucket = var.sync_bucket
   }))
 
@@ -171,12 +170,4 @@ resource "aws_eip" "backend" {
   tags     = local.tags
 }
 
-# ─── DNS ─────────────────────────────────────────────────────────────────────
-
-resource "aws_route53_record" "api" {
-  zone_id = var.zone_id
-  name    = var.api_domain
-  type    = "A"
-  ttl     = 60
-  records = [aws_eip.backend.public_ip]
-}
+# ─── DNS + ACM + CloudFront (see cloudfront.tf) ───────────────────────────────

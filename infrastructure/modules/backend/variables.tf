@@ -14,10 +14,6 @@ variable "zone_id" {
   description = "Route53 hosted zone ID"
 }
 
-variable "admin_email" {
-  description = "Email for Let's Encrypt certificate notifications"
-}
-
 variable "sync_bucket" {
   description = "S3 bucket used for code syncing (shared with the server module)"
 }
