@@ -1,14 +1,3 @@
-terraform {
-  required_providers {
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.0"
-    }
-  }
-}
-
-data "aws_caller_identity" "current" {}
-
 locals {
   name = "stashpile-${var.environment}-backend"
   tags = {
@@ -16,20 +5,6 @@ locals {
     Environment = var.environment
     Component   = "backend"
   }
-}
-
-# ─── Database password ────────────────────────────────────────────────────────
-
-resource "random_password" "db" {
-  length  = 32
-  special = false
-}
-
-resource "aws_ssm_parameter" "db_password" {
-  name  = "/stashpile/${var.environment}/db-password"
-  type  = "SecureString"
-  value = random_password.db.result
-  tags  = local.tags
 }
 
 # ─── IAM ─────────────────────────────────────────────────────────────────────
@@ -52,20 +27,6 @@ resource "aws_iam_role" "backend" {
 resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.backend.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
-
-resource "aws_iam_role_policy" "secrets" {
-  name = "${local.name}-secrets"
-  role = aws_iam_role.backend.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["ssm:GetParameter", "ssm:GetParameters"]
-      Resource = "arn:aws:ssm:*:${data.aws_caller_identity.current.account_id}:parameter/stashpile/${var.environment}/*"
-    }]
-  })
 }
 
 resource "aws_iam_role_policy" "s3_sync" {
@@ -152,13 +113,11 @@ resource "aws_instance" "backend" {
 
   user_data = base64encode(templatefile("${path.module}/userdata.sh", {
     environment = var.environment
-    api_domain  = var.api_domain
     sync_bucket = var.sync_bucket
   }))
 
   root_block_device {
-    # Extra space for Postgres data and the sentence-transformers model (~500MB)
-    volume_size = 30
+    volume_size = 20
   }
 
   tags = merge(local.tags, { Name = local.name })

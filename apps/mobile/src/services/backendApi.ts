@@ -1,6 +1,5 @@
 import { AskRedditComment, AskRedditPost } from '../types';
 
-// Override with your backend URL for production
 const BASE_URL = 'https://api.dev.stashpile.click';
 
 export interface BackendComment {
@@ -49,6 +48,29 @@ export async function fetchFeed(
   });
 
   return { comments, posts: Array.from(postsMap.values()) };
+}
+
+export async function ingestComments(
+  comments: AskRedditComment[],
+  postTitles: Map<string, string>,
+): Promise<void> {
+  if (!comments.length) return;
+  const body = {
+    comments: comments.map(c => ({
+      comment_id: c.commentId,
+      post_id:    c.postId,
+      post_title: postTitles.get(c.postId) ?? '',
+      author:     c.author,
+      body:       c.body,
+      score:      c.score,
+      depth:      c.depth,
+    })),
+  };
+  await fetch(`${BASE_URL}/ingest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 }
 
 export async function postEvent(

@@ -23,7 +23,7 @@ import {
   upsertAskRedditPosts,
 } from '../db';
 import { fetchAskRedditBatch } from '../services/askreddit';
-import { fetchFeed, postEvent } from '../services/backendApi';
+import { fetchFeed, ingestComments, postEvent } from '../services/backendApi';
 import { AskRedditComment, AskRedditPost } from '../types';
 import { CommentCard } from './CommentCard';
 import { FONT_SIZE_VALUES, FontSizeKey, SettingsSheet } from './SettingsSheet';
@@ -211,15 +211,25 @@ export function SwipeFeed() {
   async function handleSync() {
     setSyncing(true);
     try {
-      // Try backend feed first (ranked by user taste); fall back to direct Reddit fetch
+      // 1. Fetch raw content from Reddit/HN directly (residential IP, no blocking)
+      const { posts: freshPosts, comments: freshComments } = await fetchAskRedditBatch(20);
+      upsertAskRedditPosts(freshPosts);
+      upsertAskRedditComments(freshComments);
+
+      // 2. Ship to backend for embedding + ranking (fire-and-forget the ingest)
+      const postTitles = new Map(freshPosts.map(p => [p.postId, p.title]));
+      ingestComments(freshComments, postTitles).catch(() => {});
+
+      // 3. Get ranked feed back from backend (falls back to local DB on failure)
       let posts: AskRedditPost[], comments: AskRedditComment[];
       try {
         ({ posts, comments } = await fetchFeed('default', [...seenIds.current], 60));
+        upsertAskRedditPosts(posts);
+        upsertAskRedditComments(comments);
       } catch {
-        ({ posts, comments } = await fetchAskRedditBatch(20));
+        // backend unavailable — just use what we fetched locally
       }
-      upsertAskRedditPosts(posts);
-      upsertAskRedditComments(comments);
+
       const fresh = loadFromDb();
       if (!currentIdRef.current) {
         const first = weightedRandom(fresh.filter(c => !seenIds.current.has(c.commentId)));

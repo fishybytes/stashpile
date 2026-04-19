@@ -4,10 +4,6 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.0"
-    }
   }
 
   backend "s3" {
@@ -59,4 +55,3 @@ output "backend_instance_id"    { value = module.backend.instance_id }
 output "backend_public_ip"      { value = module.backend.public_ip }
 output "backend_api_url"        { value = module.backend.api_url }
 output "backend_ssm_connect"    { value = module.backend.ssm_connect }
-output "backend_db_password_ssm"{ value = module.backend.db_password_ssm_path }

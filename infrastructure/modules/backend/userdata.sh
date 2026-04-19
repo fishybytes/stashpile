@@ -6,55 +6,26 @@ echo "=== stashpile backend bootstrap ==="
 
 # ─── System ───────────────────────────────────────────────────────────────────
 dnf update -y
-dnf install -y python3.11 python3.11-pip nginx postgresql15-server
-
-# ─── Postgres ─────────────────────────────────────────────────────────────────
-postgresql-setup --initdb
-systemctl enable postgresql
-systemctl start postgresql
-
-DB_PASSWORD=$(aws ssm get-parameter \
-  --name "/stashpile/${environment}/db-password" \
-  --with-decryption \
-  --query "Parameter.Value" \
-  --output text \
-  --region us-east-1)
-
-sudo -u postgres psql <<SQL
-  CREATE DATABASE stashpile;
-  CREATE USER stashpile WITH PASSWORD '$DB_PASSWORD';
-  GRANT ALL PRIVILEGES ON DATABASE stashpile TO stashpile;
-  ALTER DATABASE stashpile OWNER TO stashpile;
-SQL
-
-# Use md5 auth for TCP connections (default ident auth rejects password-based connections)
-sed -i "s/host    all             all             127.0.0.1\/32            ident/host    all             all             127.0.0.1\/32            md5/" /var/lib/pgsql/data/pg_hba.conf
-sed -i "s/host    all             all             ::1\/128                 ident/host    all             all             ::1\/128                 md5/" /var/lib/pgsql/data/pg_hba.conf
-systemctl reload postgresql
+dnf install -y python3.11 python3.11-pip nginx
 
 # ─── App user + directories ───────────────────────────────────────────────────
 useradd -m -s /bin/bash stashpile
-mkdir -p /opt/stashpile/api
-chown -R stashpile:stashpile /opt/stashpile
+mkdir -p /opt/stashpile/api /var/lib/stashpile
+chown -R stashpile:stashpile /opt/stashpile /var/lib/stashpile
 
 # ─── Python deps ──────────────────────────────────────────────────────────────
 # CPU-only torch first (190MB vs 530MB for the CUDA build)
 pip3.11 install torch --index-url https://download.pytorch.org/whl/cpu
-# sentence-transformers and the rest of the API dependencies
 pip3.11 install \
   "sentence-transformers" \
   fastapi \
   "uvicorn[standard]" \
-  psycopg2-binary \
-  apscheduler \
-  httpx \
   pydantic-settings
 
-# ─── Write DB connection env file ─────────────────────────────────────────────
+# ─── Write env file ───────────────────────────────────────────────────────────
 cat > /opt/stashpile/.env <<EOF
-DATABASE_URL=postgresql://stashpile:$DB_PASSWORD@localhost/stashpile
+DB_PATH=/var/lib/stashpile/stashpile.db
 ENVIRONMENT=${environment}
-API_DOMAIN=${api_domain}
 EOF
 chown stashpile:stashpile /opt/stashpile/.env
 chmod 600 /opt/stashpile/.env
@@ -63,7 +34,7 @@ chmod 600 /opt/stashpile/.env
 cat > /etc/systemd/system/stashpile-api.service <<EOF
 [Unit]
 Description=stashpile backend API
-After=network.target postgresql.service
+After=network.target
 
 [Service]
 User=stashpile
@@ -91,7 +62,7 @@ systemctl daemon-reload
 systemctl enable stashpile-api
 
 # ─── nginx ────────────────────────────────────────────────────────────────────
-# SSL terminates at CloudFront; nginx just proxies HTTP from CloudFront to uvicorn.
+# SSL terminates at CloudFront; nginx proxies HTTP from CloudFront to uvicorn.
 cat > /etc/nginx/conf.d/stashpile-api.conf <<EOF
 server {
     listen 80 default_server;
