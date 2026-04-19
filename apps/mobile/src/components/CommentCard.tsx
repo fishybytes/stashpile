@@ -11,12 +11,14 @@ interface Props {
   onParentTap: () => void;
   replies: (AskRedditComment & { seen: boolean })[];
   onReplyTap: (commentId: string) => void;
+  fontSize: number;
 }
 
-export function CommentCard({ comment, post, parentComment, onParentTap, replies, onReplyTap }: Props) {
+export function CommentCard({ comment, post, parentComment, onParentTap, replies, onReplyTap, fontSize }: Props) {
   const [parentExpanded, setParentExpanded] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0);
+  const areaHeight = useRef(0);
 
   useEffect(() => {
     scrollY.current = 0;
@@ -46,7 +48,15 @@ export function CommentCard({ comment, post, parentComment, onParentTap, replies
 
       <Pressable
         style={styles.commentArea}
-        onPress={() => scrollRef.current?.scrollTo({ y: scrollY.current + PAGE, animated: true })}
+        onLayout={e => { areaHeight.current = e.nativeEvent.layout.height; }}
+        onPress={e => {
+          const tapY = e.nativeEvent.locationY;
+          if (tapY < areaHeight.current / 2) {
+            scrollRef.current?.scrollTo({ y: Math.max(0, scrollY.current - PAGE), animated: true });
+          } else {
+            scrollRef.current?.scrollTo({ y: scrollY.current + PAGE, animated: true });
+          }
+        }}
       >
         <ScrollView
           ref={scrollRef}
@@ -56,7 +66,7 @@ export function CommentCard({ comment, post, parentComment, onParentTap, replies
           scrollEventThrottle={16}
         >
           <Text style={styles.commentScore}>↑{comment.score.toLocaleString()}</Text>
-          <Text style={styles.commentBody}>{comment.body}</Text>
+          <Text style={[styles.commentBody, { fontSize, lineHeight: fontSize * 1.55 }]}>{comment.body}</Text>
         </ScrollView>
       </Pressable>
 
@@ -94,7 +104,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 56,
+    paddingTop: 100,
     paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#30363d',
@@ -154,9 +164,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   commentBody: {
-    fontSize: 17,
     color: '#e6edf3',
-    lineHeight: 26,
   },
   repliesSection: {
     marginHorizontal: 16,
