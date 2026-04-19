@@ -7,7 +7,7 @@ interface Props {
   post: AskRedditPost;
   parentComment: AskRedditComment | null;
   onParentTap: () => void;
-  replies: AskRedditComment[];
+  replies: (AskRedditComment & { seen: boolean })[];
   onReplyTap: (commentId: string) => void;
 }
 
@@ -54,8 +54,10 @@ export function CommentCard({ comment, post, parentComment, onParentTap, replies
         <View style={styles.repliesSection}>
           <Text style={styles.repliesLabel}>top replies</Text>
           {replies.map(reply => (
-            <Pressable key={reply.commentId} style={styles.replyRow} onPress={() => onReplyTap(reply.commentId)}>
-              <Text style={styles.replyScore}>↑{reply.score.toLocaleString()}</Text>
+            <Pressable key={reply.commentId} style={[styles.replyRow, reply.seen && styles.replyRowSeen]} onPress={() => onReplyTap(reply.commentId)}>
+              <Text style={[styles.replyScore, reply.seen && styles.replyScoreSeen]}>
+                {reply.seen ? '✓' : '↑'}{reply.score.toLocaleString()}
+              </Text>
               <Text style={styles.replyBody} numberOfLines={2}>
                 {reply.body.length > 120 ? reply.body.slice(0, 120) + '…' : reply.body}
               </Text>
@@ -173,11 +175,17 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#21262d',
   },
+  replyRowSeen: {
+    opacity: 0.4,
+  },
   replyScore: {
     fontSize: 11,
     color: '#ff4500',
     minWidth: 36,
     paddingTop: 1,
+  },
+  replyScoreSeen: {
+    color: '#484f58',
   },
   replyBody: {
     flex: 1,
