@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import { Article, FeedConfig } from '../types';
+import { Article, AskRedditComment, AskRedditPost, FeedConfig } from '../types';
 
 const db = SQLite.openDatabaseSync('stashpile.db');
 
@@ -26,8 +26,49 @@ export function initDb() {
       target TEXT NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 1
     );
+
+    CREATE TABLE IF NOT EXISTS askreddit_posts (
+      post_id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      score INTEGER DEFAULT 0,
+      num_comments INTEGER DEFAULT 0,
+      fetched_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS askreddit_comments (
+      comment_id TEXT PRIMARY KEY,
+      post_id TEXT NOT NULL,
+      parent_id TEXT,
+      body TEXT NOT NULL,
+      score INTEGER DEFAULT 0,
+      depth INTEGER DEFAULT 0,
+      fetched_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS comment_reading_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      comment_id TEXT NOT NULL,
+      post_id TEXT NOT NULL,
+      time_spent_ms INTEGER NOT NULL,
+      viewed_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS comment_topics (
+      comment_id TEXT NOT NULL,
+      topic TEXT NOT NULL,
+      weight REAL NOT NULL DEFAULT 1.0,
+      PRIMARY KEY (comment_id, topic)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_taste_profile (
+      topic TEXT PRIMARY KEY,
+      weight REAL NOT NULL DEFAULT 0.0,
+      last_updated INTEGER NOT NULL
+    );
   `);
 }
+
+// ─── Legacy article feed ──────────────────────────────────────────────────────
 
 export function upsertArticles(articles: Article[]) {
   const stmt = db.prepareSync(`
@@ -84,4 +125,77 @@ export function seedDefaultFeeds() {
   ];
 
   for (const feed of defaults) upsertFeedConfig(feed);
+}
+
+// ─── AskReddit swipe feed ─────────────────────────────────────────────────────
+
+function rowToPost(row: any): AskRedditPost {
+  return {
+    postId: row.post_id,
+    title: row.title,
+    score: row.score,
+    numComments: row.num_comments,
+    fetchedAt: row.fetched_at,
+  };
+}
+
+function rowToComment(row: any): AskRedditComment {
+  return {
+    commentId: row.comment_id,
+    postId: row.post_id,
+    parentId: row.parent_id ?? null,
+    body: row.body,
+    score: row.score,
+    depth: row.depth,
+    fetchedAt: row.fetched_at,
+  };
+}
+
+export function upsertAskRedditPosts(posts: AskRedditPost[]) {
+  const stmt = db.prepareSync(`
+    INSERT OR REPLACE INTO askreddit_posts (post_id, title, score, num_comments, fetched_at)
+    VALUES ($postId, $title, $score, $numComments, $fetchedAt)
+  `);
+  for (const p of posts) {
+    stmt.executeSync({
+      $postId: p.postId, $title: p.title, $score: p.score,
+      $numComments: p.numComments, $fetchedAt: p.fetchedAt,
+    });
+  }
+  stmt.finalizeSync();
+}
+
+export function upsertAskRedditComments(comments: AskRedditComment[]) {
+  const stmt = db.prepareSync(`
+    INSERT OR REPLACE INTO askreddit_comments
+      (comment_id, post_id, parent_id, body, score, depth, fetched_at)
+    VALUES ($commentId, $postId, $parentId, $body, $score, $depth, $fetchedAt)
+  `);
+  for (const c of comments) {
+    stmt.executeSync({
+      $commentId: c.commentId, $postId: c.postId, $parentId: c.parentId,
+      $body: c.body, $score: c.score, $depth: c.depth, $fetchedAt: c.fetchedAt,
+    });
+  }
+  stmt.finalizeSync();
+}
+
+export function getAllAskRedditComments(): AskRedditComment[] {
+  return db.getAllSync<any>('SELECT * FROM askreddit_comments').map(rowToComment);
+}
+
+export function getAllAskRedditPosts(): AskRedditPost[] {
+  return db.getAllSync<any>('SELECT * FROM askreddit_posts').map(rowToPost);
+}
+
+export function hasAskRedditComments(): boolean {
+  const row = db.getFirstSync<{ count: number }>('SELECT COUNT(*) as count FROM askreddit_comments');
+  return (row?.count ?? 0) > 0;
+}
+
+export function recordCommentView(commentId: string, postId: string, timeSpentMs: number) {
+  db.runSync(
+    'INSERT INTO comment_reading_sessions (comment_id, post_id, time_spent_ms, viewed_at) VALUES (?, ?, ?, ?)',
+    commentId, postId, timeSpentMs, Date.now()
+  );
 }
