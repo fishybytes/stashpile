@@ -262,17 +262,27 @@ export function SwipeFeed() {
   const peekPost = peekComment ? postsById.get(peekComment.postId) ?? null : null;
   const peekParent = peekComment?.parentId ? commentsById.get(peekComment.parentId) ?? null : null;
 
+  const topReplies = useMemo(() => {
+    if (!current) return [];
+    return allComments
+      .filter(c => c.parentId === current.commentId && !seenIds.current.has(c.commentId))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+  }, [currentId, allComments]);
+
   const previews = useMemo(() => {
+    const replyIds = new Set(topReplies.map(r => r.commentId));
     if (!current) return [];
     return allComments
       .filter(c =>
         c.postId === current.postId &&
         c.commentId !== current.commentId &&
-        !seenIds.current.has(c.commentId)
+        !seenIds.current.has(c.commentId) &&
+        !replyIds.has(c.commentId)
       )
       .sort((a, b) => b.score - a.score)
       .slice(0, 4);
-  }, [currentId, allComments]);
+  }, [currentId, allComments, topReplies]);
 
   // ─── Animated interpolations ─────────────────────────────────────────────
 
@@ -326,6 +336,8 @@ export function SwipeFeed() {
               post={peekPost}
               parentComment={peekParent}
               onParentTap={() => {}}
+              replies={[]}
+              onReplyTap={() => {}}
             />
           </Animated.View>
         )}
@@ -347,6 +359,8 @@ export function SwipeFeed() {
                 showComment(parentComment.commentId);
               }
             }}
+            replies={topReplies}
+            onReplyTap={(id) => { history.current.push(id); showComment(id); }}
           />
         </Animated.View>
       </View>
