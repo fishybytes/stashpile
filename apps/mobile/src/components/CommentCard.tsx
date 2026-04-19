@@ -1,32 +1,27 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AskRedditComment, AskRedditPost } from '../types';
 
 interface Props {
   comment: AskRedditComment;
   post: AskRedditPost;
   parentComment: AskRedditComment | null;
-  previews: AskRedditComment[];
-  onPreviewTap: (commentId: string) => void;
   onParentTap: () => void;
 }
 
-export function CommentCard({ comment, post, parentComment, previews, onPreviewTap, onParentTap }: Props) {
+export function CommentCard({ comment, post, parentComment, onParentTap }: Props) {
   const [parentExpanded, setParentExpanded] = useState(false);
   const [bodyExpanded, setBodyExpanded] = useState(false);
 
-  // rough threshold: ~400 chars tends to exceed 12 lines on most screens
   const bodyTruncated = comment.body.length > 400 && !bodyExpanded;
 
   return (
     <View style={styles.container}>
-      {/* Post title bar */}
       <View style={styles.titleBar}>
         <Text style={styles.postTitle} numberOfLines={2}>{post.title}</Text>
         <Text style={styles.postScore}>↑{post.score.toLocaleString()}</Text>
       </View>
 
-      {/* Parent context (shown when viewing a reply) */}
       {parentComment && (
         <View style={styles.parentBar}>
           <Text style={styles.parentLabel}>↳ replying to</Text>
@@ -41,7 +36,6 @@ export function CommentCard({ comment, post, parentComment, previews, onPreviewT
         </View>
       )}
 
-      {/* Main comment */}
       <View style={styles.commentArea}>
         <Text style={styles.commentScore}>↑{comment.score.toLocaleString()}</Text>
         <Text style={styles.commentBody} numberOfLines={bodyTruncated ? 12 : undefined}>
@@ -54,25 +48,9 @@ export function CommentCard({ comment, post, parentComment, previews, onPreviewT
         )}
       </View>
 
-      {/* Swipe hints */}
       <View style={styles.hints}>
         <Text style={styles.hintText}>↑ new  ·  ← → same thread  ·  ↓ back</Text>
       </View>
-
-      {/* Preview strip — other comments from this thread */}
-      {previews.length > 0 && (
-        <View style={styles.previewStrip}>
-          <Text style={styles.previewLabel}>Also in this thread</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewRow}>
-            {previews.map(p => (
-              <Pressable key={p.commentId} style={styles.previewCard} onPress={() => onPreviewTap(p.commentId)}>
-                <Text style={styles.previewScore}>↑{p.score}</Text>
-                <Text style={styles.previewBody} numberOfLines={3}>{p.body}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-      )}
     </View>
   );
 }
@@ -164,41 +142,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#484f58',
     letterSpacing: 0.3,
-  },
-  previewStrip: {
-    paddingBottom: 32,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#21262d',
-  },
-  previewLabel: {
-    fontSize: 11,
-    color: '#8b949e',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginTop: 12,
-    marginLeft: 16,
-    marginBottom: 8,
-  },
-  previewRow: {
-    paddingHorizontal: 12,
-    gap: 8,
-  },
-  previewCard: {
-    width: 200,
-    backgroundColor: '#161b22',
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#30363d',
-  },
-  previewScore: {
-    fontSize: 11,
-    color: '#ff4500',
-    marginBottom: 4,
-  },
-  previewBody: {
-    fontSize: 12,
-    color: '#8b949e',
-    lineHeight: 17,
   },
 });
