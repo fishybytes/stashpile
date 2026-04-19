@@ -23,6 +23,7 @@ import {
   upsertAskRedditPosts,
 } from '../db';
 import { fetchAskRedditBatch } from '../services/askreddit';
+import { fetchFeed, postEvent } from '../services/backendApi';
 import { AskRedditComment, AskRedditPost } from '../types';
 import { CommentCard } from './CommentCard';
 import { FONT_SIZE_VALUES, FontSizeKey, SettingsSheet } from './SettingsSheet';
@@ -97,7 +98,10 @@ export function SwipeFeed() {
     const c = allCommentsRef.current.find(x => x.commentId === cid);
     if (!c) return;
     const elapsed = Date.now() - viewStart.current;
-    if (elapsed > 500) recordCommentView(c.commentId, c.postId, elapsed);
+    if (elapsed > 500) {
+      recordCommentView(c.commentId, c.postId, elapsed);
+      postEvent(c.commentId, 'view', elapsed);
+    }
   }
 
   function handleFontSizeChange(key: FontSizeKey) {
@@ -106,13 +110,16 @@ export function SwipeFeed() {
   }
 
   function handleSave() {
-    if (!currentIdRef.current || !current) return;
+    const cid = currentIdRef.current;
+    if (!cid || !current) return;
     if (isSaved) {
-      unsaveComment(currentIdRef.current);
+      unsaveComment(cid);
       setIsSaved(false);
+      postEvent(cid, 'skip', 0);
     } else {
-      saveComment(currentIdRef.current, current.postId);
+      saveComment(cid, current.postId);
       setIsSaved(true);
+      postEvent(cid, 'save', 0);
     }
   }
 
@@ -204,7 +211,13 @@ export function SwipeFeed() {
   async function handleSync() {
     setSyncing(true);
     try {
-      const { posts, comments } = await fetchAskRedditBatch(20);
+      // Try backend feed first (ranked by user taste); fall back to direct Reddit fetch
+      let posts: AskRedditPost[], comments: AskRedditComment[];
+      try {
+        ({ posts, comments } = await fetchFeed('default', [...seenIds.current], 60));
+      } catch {
+        ({ posts, comments } = await fetchAskRedditBatch(20));
+      }
       upsertAskRedditPosts(posts);
       upsertAskRedditComments(comments);
       const fresh = loadFromDb();

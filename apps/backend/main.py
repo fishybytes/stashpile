@@ -340,18 +340,26 @@ def build_feed(user_id: str, seen_ids: set[str], limit: int) -> list[dict]:
 
 # ─── Sync job ─────────────────────────────────────────────────────────────────
 
+async def _fetch_source(name: str, coro) -> list[dict]:
+    try:
+        return await coro
+    except Exception as e:
+        log.warning("Fetch %s failed: %s", name, e)
+        return []
+
 async def sync_content():
     log.info("Content sync starting")
     try:
-        async with httpx.AsyncClient() as client:
-            reddit, hn = await asyncio.gather(
-                fetch_reddit(client, "askreddit"),
-                fetch_hn(client),
-            )
+        # Separate clients so one source failing doesn't close the other's connection
+        async with httpx.AsyncClient() as reddit_client:
+            reddit = await _fetch_source("reddit", fetch_reddit(reddit_client, "askreddit"))
+        async with httpx.AsyncClient() as hn_client:
+            hn = await _fetch_source("hn", fetch_hn(hn_client))
         records = reddit + hn
-        log.info("Fetched %d comments total", len(records))
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, store_comments, records)
+        log.info("Fetched %d comments total (%d reddit, %d hn)", len(records), len(reddit), len(hn))
+        if records:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, store_comments, records)
     except Exception:
         log.exception("Content sync failed")
 
