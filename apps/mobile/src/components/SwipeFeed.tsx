@@ -110,12 +110,11 @@ export function SwipeFeed() {
   }
 
   function showComment(commentId: string, addToHistory = true) {
-    // Hide card and reset position before content swap — eliminates the flash
-    position.setValue({ x: 0, y: 0 });
-    swipeProgress.setValue(0);
     cardOpacity.setValue(0);
-    dominantDirRef.current = null;
-    setDominantDir(null);
+    position.setValue({ x: 0, y: 0 });
+    // swipeProgress left at its current value (1 after a swipe) so the peek card
+    // stays visible as a seamless background while the new card fades in.
+    // dominantDir also preserved so peekId keeps pointing at the target comment.
 
     flushCurrentView();
     seenIds.current.add(commentId);
@@ -123,11 +122,16 @@ export function SwipeFeed() {
     if (addToHistory) history.current.push(commentId);
     currentIdRef.current = commentId;
     setCurrentId(commentId);
+    // computeNextIds deferred — updating it now would swap the peek card's content mid-fade
 
-    computeNextIds(allCommentsRef.current.find(c => c.commentId === commentId) ?? null);
-
-    // Fade the new content in after React has rendered it
-    Animated.timing(cardOpacity, { toValue: 1, duration: 160, useNativeDriver: true }).start();
+    Animated.timing(cardOpacity, { toValue: 1, duration: 160, useNativeDriver: true }).start(({ finished }) => {
+      if (!finished) return;
+      // Current card is now fully opaque and covers the peek card — safe to reset
+      swipeProgress.setValue(0);
+      dominantDirRef.current = null;
+      setDominantDir(null);
+      computeNextIds(allCommentsRef.current.find(c => c.commentId === commentId) ?? null);
+    });
   }
 
   function animateOut(toX: number, toY: number, done: () => void) {
