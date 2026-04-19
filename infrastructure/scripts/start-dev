@@ -8,12 +8,12 @@ ROOT="$SCRIPT_DIR/../.."
 ENV="${1:-dev}"
 ENV_FILE="$ROOT/.env.$ENV"
 
-if [ ! -f "$ENV_FILE" ]; then
-  echo "Error: credentials file not found at $ENV_FILE"
+if [ -f "$ENV_FILE" ]; then
+  set -a && source "$ENV_FILE" && set +a
+elif [ -z "$AWS_ACCESS_KEY_ID" ] && [ -z "$AWS_WEB_IDENTITY_TOKEN_FILE" ]; then
+  echo "Error: no credentials found. Create $ENV_FILE or set AWS env vars."
   exit 1
 fi
-
-set -a && source "$ENV_FILE" && set +a
 
 cd "$SCRIPT_DIR/../environments/$ENV"
 INSTANCE_ID=$(terraform output -raw instance_id 2>/dev/null)
