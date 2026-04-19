@@ -267,7 +267,8 @@ export function SwipeFeed() {
     return allComments
       .filter(c => c.parentId === current.commentId && c.commentId !== currentId)
       .sort((a, b) => b.score - a.score)
-      .slice(0, 3);
+      .slice(0, 3)
+      .map(c => ({ ...c, seen: seenIds.current.has(c.commentId) }));
   }, [currentId, allComments]);
 
   const previews = useMemo(() => {
