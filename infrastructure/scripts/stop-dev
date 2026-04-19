@@ -1,19 +1,29 @@
 #!/bin/bash
-# Stop the dev server instance
+# Usage: ./infrastructure/scripts/stop-dev <env>
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/../../.env"
+ROOT="$SCRIPT_DIR/../.."
+
+ENV="${1:-dev}"
+ENV_FILE="$ROOT/.env.$ENV"
+
+if [ ! -f "$ENV_FILE" ]; then
+  echo "Error: credentials file not found at $ENV_FILE"
+  exit 1
+fi
+
 set -a && source "$ENV_FILE" && set +a
 
-INSTANCE_ID=$(cd "$SCRIPT_DIR/../terraform" && terraform output -raw instance_id 2>/dev/null)
+cd "$SCRIPT_DIR/../environments/$ENV"
+INSTANCE_ID=$(terraform output -raw instance_id 2>/dev/null)
 
 if [ -z "$INSTANCE_ID" ]; then
   echo "Error: no instance found."
   exit 1
 fi
 
-echo "Stopping $INSTANCE_ID..."
-aws ec2 stop-instances --instance-ids "$INSTANCE_ID" --region us-east-1 > /dev/null
-aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID" --region us-east-1
-echo "Instance stopped."
+echo "[$ENV] Stopping $INSTANCE_ID..."
+aws ec2 stop-instances --instance-ids "$INSTANCE_ID" --region "$AWS_DEFAULT_REGION" > /dev/null
+aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID" --region "$AWS_DEFAULT_REGION"
+echo "[$ENV] Instance stopped."

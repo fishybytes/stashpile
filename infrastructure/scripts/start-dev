@@ -1,32 +1,42 @@
 #!/bin/bash
-# Start the dev server, deploy latest code, print connection info
+# Usage: ./infrastructure/scripts/start-dev <env>
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/../../.env"
-set -a && source "$ENV_FILE" && set +a
+ROOT="$SCRIPT_DIR/../.."
 
-INSTANCE_ID=$(cd "$SCRIPT_DIR/../terraform" && terraform output -raw instance_id 2>/dev/null)
-PUBLIC_IP=$(cd "$SCRIPT_DIR/../terraform" && terraform output -raw public_ip 2>/dev/null)
+ENV="${1:-dev}"
+ENV_FILE="$ROOT/.env.$ENV"
 
-if [ -z "$INSTANCE_ID" ]; then
-  echo "Error: no instance found. Run ./infrastructure/scripts/tf apply first."
+if [ ! -f "$ENV_FILE" ]; then
+  echo "Error: credentials file not found at $ENV_FILE"
   exit 1
 fi
 
-echo "Starting $INSTANCE_ID..."
-aws ec2 start-instances --instance-ids "$INSTANCE_ID" --region us-east-1 > /dev/null
+set -a && source "$ENV_FILE" && set +a
 
-echo "Waiting for instance to be running..."
-aws ec2 wait instance-running --instance-ids "$INSTANCE_ID" --region us-east-1
+cd "$SCRIPT_DIR/../environments/$ENV"
+INSTANCE_ID=$(terraform output -raw instance_id 2>/dev/null)
+PUBLIC_IP=$(terraform output -raw public_ip 2>/dev/null)
 
-echo "Waiting for SSM agent..."
+if [ -z "$INSTANCE_ID" ]; then
+  echo "Error: no instance found. Run ./infrastructure/scripts/tf $ENV apply first."
+  exit 1
+fi
+
+echo "[$ENV] Starting $INSTANCE_ID..."
+aws ec2 start-instances --instance-ids "$INSTANCE_ID" --region "$AWS_DEFAULT_REGION" > /dev/null
+
+echo "[$ENV] Waiting for instance to be running..."
+aws ec2 wait instance-running --instance-ids "$INSTANCE_ID" --region "$AWS_DEFAULT_REGION"
+
+echo "[$ENV] Waiting for SSM agent..."
 sleep 15
 
-"$SCRIPT_DIR/deploy"
+"$SCRIPT_DIR/deploy" "$ENV"
 
 echo ""
-echo "Dev server ready."
+echo "[$ENV] Dev server ready."
 echo "  Public IP : $PUBLIC_IP"
 echo "  Metro URL : exp://$PUBLIC_IP:8081"
 echo "  SSM shell : aws ssm start-session --target $INSTANCE_ID"

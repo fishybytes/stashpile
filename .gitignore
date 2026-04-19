@@ -32,13 +32,14 @@ yarn-error.*
 
 # local env files
 .env
-.env*.local
+.env.*
+!.env.example
 
 # Terraform
-infrastructure/terraform/.terraform/
-infrastructure/terraform/.terraform.lock.hcl
-infrastructure/terraform/terraform.tfstate
-infrastructure/terraform/terraform.tfstate.backup
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
 
 # typescript
 *.tsbuildinfo
