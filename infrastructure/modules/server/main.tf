@@ -67,7 +67,7 @@ resource "aws_iam_instance_profile" "server" {
 
 resource "aws_security_group" "server" {
   name        = "${local.name}-server"
-  description = "Expo Metro bundler (${var.environment})"
+  description = "Expo Metro bundler"
 
   ingress {
     description = "Metro bundler"
@@ -93,6 +93,10 @@ resource "aws_security_group" "server" {
   }
 
   tags = local.tags
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_eip" "server" {
