@@ -12,6 +12,7 @@ export interface AskRedditComment {
   commentId: string;
   postId: string;
   parentId: string | null;
+  author: string;
   body: string;
   score: number;
   depth: number;

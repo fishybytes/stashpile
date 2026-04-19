@@ -69,6 +69,7 @@ function flattenComments(
       commentId: d.id,
       postId,
       parentId,
+      author: d.author ?? '',
       body: decodeEntities(d.body.trim()),
       score: d.score ?? 0,
       depth,

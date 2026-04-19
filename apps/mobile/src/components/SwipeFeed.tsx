@@ -303,6 +303,8 @@ export function SwipeFeed() {
               replies={[]}
               onReplyTap={() => {}}
               fontSize={fontSize}
+              isSaved={false}
+              onSave={() => {}}
             />
           </Animated.View>
         )}
@@ -327,6 +329,8 @@ export function SwipeFeed() {
             replies={topReplies}
             onReplyTap={(id) => { history.current.push(id); showComment(id); }}
             fontSize={fontSize}
+            isSaved={isSaved}
+            onSave={handleSave}
           />
         </Animated.View>
       </View>
