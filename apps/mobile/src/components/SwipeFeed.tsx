@@ -5,7 +5,6 @@ import {
   Dimensions,
   PanResponder,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -25,7 +24,6 @@ import { CommentCard } from './CommentCard';
 const { width: W, height: H } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 80;
 const VELOCITY_THRESHOLD = 0.5;
-const PREVIEW_H = 168;
 
 function weightedRandom(items: AskRedditComment[]): AskRedditComment | null {
   if (!items.length) return null;
@@ -271,20 +269,6 @@ export function SwipeFeed() {
       .map(c => ({ ...c, seen: seenIds.current.has(c.commentId) }));
   }, [currentId, allComments]);
 
-  const previews = useMemo(() => {
-    const replyIds = new Set(topReplies.map(r => r.commentId));
-    if (!current) return [];
-    return allComments
-      .filter(c =>
-        c.postId === current.postId &&
-        c.commentId !== current.commentId &&
-        !seenIds.current.has(c.commentId) &&
-        !replyIds.has(c.commentId)
-      )
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 4);
-  }, [currentId, allComments, topReplies]);
-
   // ─── Animated interpolations ─────────────────────────────────────────────
 
   // Peek card grows from 93% → 100% as drag progresses
@@ -366,33 +350,6 @@ export function SwipeFeed() {
         </Animated.View>
       </View>
 
-      {/* Preview strip — sibling to the card stack, outside the PanResponder */}
-      <View style={styles.previewStrip}>
-        {previews.length > 0 ? (
-          <>
-            <Text style={styles.previewLabel}>Also in this thread</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.previewRow}
-            >
-              {previews.map(p => (
-                <Pressable
-                  key={p.commentId}
-                  style={styles.previewCard}
-                  onPress={() => { history.current.push(p.commentId); showComment(p.commentId); }}
-                >
-                  <Text style={styles.previewScore}>↑{p.score}</Text>
-                  <Text style={styles.previewBody} numberOfLines={3}>{p.body}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </>
-        ) : (
-          <Text style={styles.previewEmpty}>End of thread — swipe for more</Text>
-        )}
-      </View>
-
       <Pressable style={styles.syncOverlay} onPress={handleSync} disabled={syncing}>
         {syncing
           ? <ActivityIndicator color="#8b949e" size="small" />
@@ -443,48 +400,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 15,
-  },
-  previewStrip: {
-    height: PREVIEW_H,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#21262d',
-    justifyContent: 'center',
-  },
-  previewLabel: {
-    fontSize: 11,
-    color: '#8b949e',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginTop: 10,
-    marginLeft: 16,
-    marginBottom: 8,
-  },
-  previewRow: {
-    paddingHorizontal: 12,
-    gap: 8,
-  },
-  previewCard: {
-    width: 190,
-    backgroundColor: '#161b22',
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#30363d',
-  },
-  previewScore: {
-    fontSize: 11,
-    color: '#ff4500',
-    marginBottom: 4,
-  },
-  previewBody: {
-    fontSize: 12,
-    color: '#8b949e',
-    lineHeight: 17,
-  },
-  previewEmpty: {
-    fontSize: 12,
-    color: '#484f58',
-    textAlign: 'center',
   },
   syncOverlay: {
     position: 'absolute',
