@@ -1,0 +1,23 @@
+{
+  "name": "stashpile",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "forwardPorts": [8081, 19000, 19001, 19002],
+  "portsAttributes": {
+    "8081": { "label": "Metro Bundler", "onAutoForward": "silent" },
+    "19000": { "label": "Expo", "onAutoForward": "silent" },
+    "19001": { "label": "Expo DevTools", "onAutoForward": "silent" }
+  },
+  "postCreateCommand": "cd apps/mobile && npm install && npm install -g expo-cli eas-cli",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "msjsdiag.vscode-react-native"
+      ]
+    }
+  },
+  "remoteEnv": {
+    "EXPO_TUNNEL_SUBDOMAIN": "stashpile-dev"
+  }
+}
