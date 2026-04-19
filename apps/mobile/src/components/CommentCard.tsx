@@ -7,9 +7,11 @@ interface Props {
   post: AskRedditPost;
   parentComment: AskRedditComment | null;
   onParentTap: () => void;
+  replies: AskRedditComment[];
+  onReplyTap: (commentId: string) => void;
 }
 
-export function CommentCard({ comment, post, parentComment, onParentTap }: Props) {
+export function CommentCard({ comment, post, parentComment, onParentTap, replies, onReplyTap }: Props) {
   const [parentExpanded, setParentExpanded] = useState(false);
   const [bodyExpanded, setBodyExpanded] = useState(false);
 
@@ -47,6 +49,21 @@ export function CommentCard({ comment, post, parentComment, onParentTap }: Props
           </Pressable>
         )}
       </View>
+
+      {replies.length > 0 && (
+        <View style={styles.repliesSection}>
+          <Text style={styles.repliesLabel}>top replies</Text>
+          {replies.map(reply => (
+            <Pressable key={reply.commentId} style={styles.replyRow} onPress={() => onReplyTap(reply.commentId)}>
+              <Text style={styles.replyScore}>↑{reply.score.toLocaleString()}</Text>
+              <Text style={styles.replyBody} numberOfLines={2}>
+                {reply.body.length > 120 ? reply.body.slice(0, 120) + '…' : reply.body}
+              </Text>
+              <Text style={styles.replyArrow}>›</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
       <View style={styles.hints}>
         <Text style={styles.hintText}>↑ new  ·  ← → same thread  ·  ↓ back</Text>
@@ -133,6 +150,45 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 13,
     color: '#58a6ff',
+  },
+  repliesSection: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: '#21262d',
+    paddingLeft: 12,
+  },
+  repliesLabel: {
+    fontSize: 10,
+    color: '#484f58',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  replyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 7,
+    gap: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#21262d',
+  },
+  replyScore: {
+    fontSize: 11,
+    color: '#ff4500',
+    minWidth: 36,
+    paddingTop: 1,
+  },
+  replyBody: {
+    flex: 1,
+    fontSize: 13,
+    color: '#8b949e',
+    lineHeight: 18,
+  },
+  replyArrow: {
+    fontSize: 18,
+    color: '#30363d',
+    lineHeight: 20,
   },
   hints: {
     alignItems: 'center',
