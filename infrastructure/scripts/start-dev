@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start the dev server instance and print connection info
+# Start the dev server, deploy latest code, print connection info
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -20,11 +20,13 @@ aws ec2 start-instances --instance-ids "$INSTANCE_ID" --region us-east-1 > /dev/
 echo "Waiting for instance to be running..."
 aws ec2 wait instance-running --instance-ids "$INSTANCE_ID" --region us-east-1
 
-# Give SSM agent a moment to come online
-sleep 10
+echo "Waiting for SSM agent..."
+sleep 15
+
+"$SCRIPT_DIR/deploy"
 
 echo ""
-echo "Dev server running."
+echo "Dev server ready."
 echo "  Public IP : $PUBLIC_IP"
 echo "  Metro URL : exp://$PUBLIC_IP:8081"
 echo "  SSM shell : aws ssm start-session --target $INSTANCE_ID"
