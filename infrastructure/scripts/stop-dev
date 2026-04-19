@@ -1,0 +1,19 @@
+#!/bin/bash
+# Stop the dev server instance
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="$SCRIPT_DIR/../../.env"
+set -a && source "$ENV_FILE" && set +a
+
+INSTANCE_ID=$(cd "$SCRIPT_DIR/../terraform" && terraform output -raw instance_id 2>/dev/null)
+
+if [ -z "$INSTANCE_ID" ]; then
+  echo "Error: no instance found."
+  exit 1
+fi
+
+echo "Stopping $INSTANCE_ID..."
+aws ec2 stop-instances --instance-ids "$INSTANCE_ID" --region us-east-1 > /dev/null
+aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID" --region us-east-1
+echo "Instance stopped."
