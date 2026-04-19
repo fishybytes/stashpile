@@ -39,6 +39,7 @@ export function initDb() {
       comment_id TEXT PRIMARY KEY,
       post_id TEXT NOT NULL,
       parent_id TEXT,
+      author TEXT NOT NULL DEFAULT '',
       body TEXT NOT NULL,
       score INTEGER DEFAULT 0,
       depth INTEGER DEFAULT 0,
@@ -155,6 +156,7 @@ function rowToComment(row: any): AskRedditComment {
     commentId: row.comment_id,
     postId: row.post_id,
     parentId: row.parent_id ?? null,
+    author: row.author ?? '',
     body: row.body,
     score: row.score,
     depth: row.depth,
@@ -179,13 +181,13 @@ export function upsertAskRedditPosts(posts: AskRedditPost[]) {
 export function upsertAskRedditComments(comments: AskRedditComment[]) {
   const stmt = db.prepareSync(`
     INSERT OR REPLACE INTO askreddit_comments
-      (comment_id, post_id, parent_id, body, score, depth, fetched_at)
-    VALUES ($commentId, $postId, $parentId, $body, $score, $depth, $fetchedAt)
+      (comment_id, post_id, parent_id, author, body, score, depth, fetched_at)
+    VALUES ($commentId, $postId, $parentId, $author, $body, $score, $depth, $fetchedAt)
   `);
   for (const c of comments) {
     stmt.executeSync({
       $commentId: c.commentId, $postId: c.postId, $parentId: c.parentId,
-      $body: c.body, $score: c.score, $depth: c.depth, $fetchedAt: c.fetchedAt,
+      $author: c.author, $body: c.body, $score: c.score, $depth: c.depth, $fetchedAt: c.fetchedAt,
     });
   }
   stmt.finalizeSync();

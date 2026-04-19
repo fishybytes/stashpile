@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AskRedditComment, AskRedditPost } from '../types';
 
 const PAGE = 220;
@@ -12,18 +12,55 @@ interface Props {
   replies: (AskRedditComment & { seen: boolean })[];
   onReplyTap: (commentId: string) => void;
   fontSize: number;
+  isSaved: boolean;
+  onSave: () => void;
 }
 
-export function CommentCard({ comment, post, parentComment, onParentTap, replies, onReplyTap, fontSize }: Props) {
+export function CommentCard({ comment, post, parentComment, onParentTap, replies, onReplyTap, fontSize, isSaved, onSave }: Props) {
   const [parentExpanded, setParentExpanded] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0);
   const areaHeight = useRef(0);
+  const lastTapTime = useRef(0);
+  const lastTapY = useRef(0);
+  const tapTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveFlashOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     scrollY.current = 0;
     scrollRef.current?.scrollTo({ y: 0, animated: false });
+    if (tapTimeout.current) clearTimeout(tapTimeout.current);
+    lastTapTime.current = 0;
   }, [comment.commentId]);
+
+  function flashSaveIndicator() {
+    saveFlashOpacity.setValue(1);
+    Animated.sequence([
+      Animated.delay(500),
+      Animated.timing(saveFlashOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start();
+  }
+
+  function handleTap(locationY: number) {
+    const now = Date.now();
+    if (now - lastTapTime.current < 300) {
+      if (tapTimeout.current) { clearTimeout(tapTimeout.current); tapTimeout.current = null; }
+      lastTapTime.current = 0;
+      onSave();
+      flashSaveIndicator();
+    } else {
+      lastTapTime.current = now;
+      lastTapY.current = locationY;
+      tapTimeout.current = setTimeout(() => {
+        tapTimeout.current = null;
+        if (lastTapY.current < areaHeight.current / 2) {
+          scrollRef.current?.scrollTo({ y: Math.max(0, scrollY.current - PAGE), animated: true });
+        } else {
+          scrollRef.current?.scrollTo({ y: scrollY.current + PAGE, animated: true });
+        }
+      }, 300);
+    }
+  }
 
   return (
     <View style={styles.container}>
@@ -49,14 +86,7 @@ export function CommentCard({ comment, post, parentComment, onParentTap, replies
       <Pressable
         style={styles.commentArea}
         onLayout={e => { areaHeight.current = e.nativeEvent.layout.height; }}
-        onPress={e => {
-          const tapY = e.nativeEvent.locationY;
-          if (tapY < areaHeight.current / 2) {
-            scrollRef.current?.scrollTo({ y: Math.max(0, scrollY.current - PAGE), animated: true });
-          } else {
-            scrollRef.current?.scrollTo({ y: scrollY.current + PAGE, animated: true });
-          }
-        }}
+        onPress={e => handleTap(e.nativeEvent.locationY)}
       >
         <ScrollView
           ref={scrollRef}
@@ -65,9 +95,15 @@ export function CommentCard({ comment, post, parentComment, onParentTap, replies
           onScroll={e => { scrollY.current = e.nativeEvent.contentOffset.y; }}
           scrollEventThrottle={16}
         >
-          <Text style={styles.commentScore}>↑{comment.score.toLocaleString()}</Text>
+          <View style={styles.commentMeta}>
+            <Text style={styles.commentScore}>↑{comment.score.toLocaleString()}</Text>
+            {comment.author ? <Text style={styles.commentAuthor}>u/{comment.author}</Text> : null}
+          </View>
           <Text style={[styles.commentBody, { fontSize, lineHeight: fontSize * 1.55 }]}>{comment.body}</Text>
         </ScrollView>
+        <Animated.Text style={[styles.saveFlash, { opacity: saveFlashOpacity }]}>
+          {isSaved ? '♥' : '♡'}
+        </Animated.Text>
       </Pressable>
 
       {replies.length > 0 && (
@@ -157,14 +193,31 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 8,
   },
+  commentMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
   commentScore: {
     fontSize: 13,
     color: '#ff4500',
     fontWeight: '600',
-    marginBottom: 10,
+  },
+  commentAuthor: {
+    fontSize: 12,
+    color: '#8b949e',
   },
   commentBody: {
     color: '#e6edf3',
+  },
+  saveFlash: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: '40%',
+    fontSize: 64,
+    color: '#ff4500',
+    pointerEvents: 'none',
   },
   repliesSection: {
     marginHorizontal: 16,
