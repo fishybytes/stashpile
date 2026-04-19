@@ -12,14 +12,21 @@ import {
 import {
   getAllAskRedditComments,
   getAllAskRedditPosts,
+  getSetting,
   hasAskRedditComments,
+  isCommentSaved,
   recordCommentView,
+  saveComment,
+  setSetting,
+  unsaveComment,
   upsertAskRedditComments,
   upsertAskRedditPosts,
 } from '../db';
 import { fetchAskRedditBatch } from '../services/askreddit';
 import { AskRedditComment, AskRedditPost } from '../types';
 import { CommentCard } from './CommentCard';
+import { FONT_SIZE_VALUES, FontSizeKey, SettingsSheet } from './SettingsSheet';
+import { SavedSheet } from './SavedSheet';
 
 const { width: W, height: H } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 80;
@@ -47,6 +54,10 @@ export function SwipeFeed() {
   const [dominantDir, setDominantDir] = useState<'h' | 'v' | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [fontSizeKey, setFontSizeKey] = useState<FontSizeKey>('medium');
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [savedVisible, setSavedVisible] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
 
   // Mutable refs — safe to read from PanResponder without stale closures
   const seenIds = useRef(new Set<string>());
@@ -107,9 +118,26 @@ export function SwipeFeed() {
     if (elapsed > 500) recordCommentView(c.commentId, c.postId, elapsed);
   }
 
+  function handleFontSizeChange(key: FontSizeKey) {
+    setFontSizeKey(key);
+    setSetting('fontSize', key);
+  }
+
+  function handleSave() {
+    if (!currentIdRef.current || !current) return;
+    if (isSaved) {
+      unsaveComment(currentIdRef.current);
+      setIsSaved(false);
+    } else {
+      saveComment(currentIdRef.current, current.postId);
+      setIsSaved(true);
+    }
+  }
+
   function showComment(commentId: string, addToHistory = true) {
     cardOpacity.setValue(0);
     position.setValue({ x: 0, y: 0 });
+    setIsSaved(isCommentSaved(commentId));
     // swipeProgress left at its current value (1 after a swipe) so the peek card
     // stays visible as a seamless background while the new card fades in.
     // dominantDir also preserved so peekId keeps pointing at the target comment.
@@ -234,18 +262,24 @@ export function SwipeFeed() {
         const first = weightedRandom(fresh.filter(c => !seenIds.current.has(c.commentId)));
         if (first) showComment(first.commentId);
       }
+    } catch {
+      // network unavailable — fail silently
     } finally {
       setSyncing(false);
     }
   }
 
   useEffect(() => {
+    const saved = getSetting('fontSize') as FontSizeKey | null;
+    if (saved) setFontSizeKey(saved);
+
     const comments = loadFromDb();
     if (hasAskRedditComments()) {
       const first = weightedRandom(comments);
       if (first) showComment(first.commentId);
     }
     setLoading(false);
+    handleSync(); // background sync on open
   }, []);
 
   // ─── Derived display values ───────────────────────────────────────────────
@@ -301,15 +335,10 @@ export function SwipeFeed() {
     );
   }
 
+  const fontSize = FONT_SIZE_VALUES[fontSizeKey];
+
   return (
     <View style={styles.container}>
-      {/*
-       * Card stack: occupies all space above the preview strip.
-       * The peek card sits behind at absoluteFill, scaled down.
-       * The current card is on top and moves with the gesture.
-       * panHandlers are on the current card only, so the preview
-       * strip below is never part of the gesture responder chain.
-       */}
       <View style={styles.stack}>
         {peekComment && peekPost && (
           <Animated.View style={[
@@ -323,6 +352,7 @@ export function SwipeFeed() {
               onParentTap={() => {}}
               replies={[]}
               onReplyTap={() => {}}
+              fontSize={fontSize}
             />
           </Animated.View>
         )}
@@ -346,15 +376,45 @@ export function SwipeFeed() {
             }}
             replies={topReplies}
             onReplyTap={(id) => { history.current.push(id); showComment(id); }}
+            fontSize={fontSize}
           />
         </Animated.View>
       </View>
 
-      <Pressable style={styles.syncOverlay} onPress={handleSync} disabled={syncing}>
-        {syncing
-          ? <ActivityIndicator color="#8b949e" size="small" />
-          : <Text style={styles.syncOverlayText}>↻</Text>}
-      </Pressable>
+      {/* Floating top bar — pointerEvents="box-none" so swipes pass through the bg */}
+      <View style={styles.topBar} pointerEvents="box-none">
+        <View style={styles.topBarContent}>
+          <Text style={styles.topBarTitle}>stashpile</Text>
+          <View style={styles.topBarActions}>
+            <Pressable style={styles.topBarBtn} onPress={handleSave}>
+              <Text style={[styles.topBarBtnText, isSaved && styles.topBarBtnSaved]}>
+                {isSaved ? '♥' : '♡'}
+              </Text>
+            </Pressable>
+            <Pressable style={styles.topBarBtn} onPress={handleSync} disabled={syncing}>
+              {syncing
+                ? <ActivityIndicator color="#8b949e" size="small" />
+                : <Text style={styles.topBarBtnText}>↻</Text>}
+            </Pressable>
+            <Pressable style={styles.topBarBtn} onPress={() => setSettingsVisible(true)}>
+              <Text style={styles.topBarBtnText}>⚙</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+
+      <SettingsSheet
+        visible={settingsVisible}
+        onClose={() => setSettingsVisible(false)}
+        fontSize={fontSizeKey}
+        onFontSizeChange={handleFontSizeChange}
+        onOpenSaved={() => { setSettingsVisible(false); setSavedVisible(true); }}
+      />
+      <SavedSheet
+        visible={savedVisible}
+        onClose={() => setSavedVisible(false)}
+        onNavigate={(id) => { history.current.push(id); showComment(id); }}
+      />
     </View>
   );
 }
@@ -401,17 +461,44 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 15,
   },
-  syncOverlay: {
+  topBar: {
     position: 'absolute',
-    top: 52,
-    right: 16,
-    width: 36,
-    height: 36,
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingTop: 48,
+    backgroundColor: 'rgba(13,17,23,0.92)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#21262d',
+  },
+  topBarContent: {
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+  },
+  topBarTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#ff4500',
+    letterSpacing: -0.3,
+  },
+  topBarActions: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  topBarBtn: {
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  syncOverlayText: {
+  topBarBtnText: {
     fontSize: 20,
-    color: '#484f58',
+    color: '#8b949e',
+  },
+  topBarBtnSaved: {
+    color: '#ff4500',
   },
 });

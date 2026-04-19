@@ -65,6 +65,17 @@ export function initDb() {
       weight REAL NOT NULL DEFAULT 0.0,
       last_updated INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS saved_items (
+      comment_id TEXT PRIMARY KEY,
+      post_id TEXT NOT NULL,
+      saved_at INTEGER NOT NULL
+    );
   `);
 }
 
@@ -192,6 +203,52 @@ export function hasAskRedditComments(): boolean {
   const row = db.getFirstSync<{ count: number }>('SELECT COUNT(*) as count FROM askreddit_comments');
   return (row?.count ?? 0) > 0;
 }
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
+
+export function getSetting(key: string): string | null {
+  return db.getFirstSync<{ value: string }>('SELECT value FROM settings WHERE key = ?', key)?.value ?? null;
+}
+
+export function setSetting(key: string, value: string) {
+  db.runSync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', key, value);
+}
+
+// ─── Saved items ──────────────────────────────────────────────────────────────
+
+export function saveComment(commentId: string, postId: string) {
+  db.runSync(
+    'INSERT OR REPLACE INTO saved_items (comment_id, post_id, saved_at) VALUES (?, ?, ?)',
+    commentId, postId, Date.now()
+  );
+}
+
+export function unsaveComment(commentId: string) {
+  db.runSync('DELETE FROM saved_items WHERE comment_id = ?', commentId);
+}
+
+export function isCommentSaved(commentId: string): boolean {
+  return (db.getFirstSync<{ count: number }>('SELECT COUNT(*) as count FROM saved_items WHERE comment_id = ?', commentId)?.count ?? 0) > 0;
+}
+
+export function getSavedItems(): { comment: AskRedditComment; postTitle: string; postScore: number; savedAt: number }[] {
+  return db.getAllSync<any>(`
+    SELECT s.saved_at,
+           c.comment_id, c.post_id, c.parent_id, c.body, c.score, c.depth, c.fetched_at,
+           p.title AS post_title, p.score AS post_score
+    FROM saved_items s
+    JOIN askreddit_comments c ON c.comment_id = s.comment_id
+    JOIN askreddit_posts p ON p.post_id = s.post_id
+    ORDER BY s.saved_at DESC
+  `).map(row => ({
+    comment: rowToComment(row),
+    postTitle: row.post_title,
+    postScore: row.post_score,
+    savedAt: row.saved_at,
+  }));
+}
+
+// ─── Reading sessions ─────────────────────────────────────────────────────────
 
 export function recordCommentView(commentId: string, postId: string, timeSpentMs: number) {
   db.runSync(
