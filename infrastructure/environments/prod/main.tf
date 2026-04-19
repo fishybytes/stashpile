@@ -56,6 +56,7 @@ module "backend" {
   api_domain    = "api.${var.domain_name}"
   zone_id       = data.aws_route53_zone.main.zone_id
   admin_email   = var.admin_email
+  sync_bucket   = module.server.s3_bucket
 }
 
 output "backend_instance_id"    { value = module.backend.instance_id }
