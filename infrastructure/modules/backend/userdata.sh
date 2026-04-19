@@ -6,7 +6,7 @@ echo "=== stashpile backend bootstrap ==="
 
 # ─── System ───────────────────────────────────────────────────────────────────
 dnf update -y
-dnf install -y python3.11 python3.11-pip nginx
+dnf install -y python3.11 python3.11-pip nginx sqlite
 
 # ─── App user + directories ───────────────────────────────────────────────────
 useradd -m -s /bin/bash stashpile
@@ -49,17 +49,85 @@ WantedBy=multi-user.target
 EOF
 
 # ─── Deploy script (called by SSM on each code push) ─────────────────────────
+# Restores DB from the S3 backup on first deploy (empty instance).
 cat > /usr/local/bin/stashpile-backend-deploy <<DEPLOY
 #!/bin/bash
 set -e
 aws s3 sync s3://${sync_bucket}/apps/backend/ /opt/stashpile/api/ --delete
 chown -R stashpile:stashpile /opt/stashpile/api
+
+if [ ! -f /var/lib/stashpile/stashpile.db ]; then
+  if aws s3 ls "s3://${sync_bucket}/backups/db/latest.db" 2>/dev/null | grep -q latest.db; then
+    echo "No local DB found — restoring from S3 backup..."
+    aws s3 cp "s3://${sync_bucket}/backups/db/latest.db" /var/lib/stashpile/stashpile.db
+    chown stashpile:stashpile /var/lib/stashpile/stashpile.db
+    echo "DB restored."
+  else
+    echo "No S3 backup found — starting with empty DB."
+  fi
+fi
+
 systemctl restart stashpile-api
 DEPLOY
 chmod +x /usr/local/bin/stashpile-backend-deploy
 
+# ─── DB backup script ─────────────────────────────────────────────────────────
+# Uses the SQLite online backup API (.backup) for a consistent snapshot.
+# Keeps timestamped hourly copies for 7 days; always updates latest.db.
+cat > /usr/local/bin/stashpile-db-backup <<BACKUPEOF
+#!/bin/bash
+set -e
+DB=/var/lib/stashpile/stashpile.db
+BUCKET="${sync_bucket}"
+TIMESTAMP=\$(date -u +%Y-%m-%dT%H)
+TMP=/tmp/stashpile-backup-\$\$.db
+
+[ -f "\$DB" ] || { echo "No DB file, skipping backup."; exit 0; }
+
+sqlite3 "\$DB" ".backup \$TMP"
+aws s3 cp "\$TMP" "s3://\$BUCKET/backups/db/\$TIMESTAMP.db"
+aws s3 cp "\$TMP" "s3://\$BUCKET/backups/db/latest.db"
+rm -f "\$TMP"
+
+# Delete snapshots older than 7 days
+CUTOFF=\$(date -u -d '7 days ago' +%Y-%m-%d)
+aws s3 ls "s3://\$BUCKET/backups/db/" | awk '{print \$4}' | grep -v '^latest' | while read key; do
+  kdate=\$(echo "\$key" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}')
+  if [ -n "\$kdate" ] && [[ "\$kdate" < "\$CUTOFF" ]]; then
+    aws s3 rm "s3://\$BUCKET/backups/db/\$key"
+  fi
+done
+
+echo "DB backup complete: \$TIMESTAMP"
+BACKUPEOF
+chmod +x /usr/local/bin/stashpile-db-backup
+
+# ─── Hourly backup timer ──────────────────────────────────────────────────────
+cat > /etc/systemd/system/stashpile-db-backup.service <<EOF
+[Unit]
+Description=stashpile DB backup to S3
+
+[Service]
+Type=oneshot
+User=stashpile
+ExecStart=/usr/local/bin/stashpile-db-backup
+EOF
+
+cat > /etc/systemd/system/stashpile-db-backup.timer <<EOF
+[Unit]
+Description=Hourly stashpile DB backup
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
 systemctl daemon-reload
 systemctl enable stashpile-api
+systemctl enable --now stashpile-db-backup.timer
 
 # ─── nginx ────────────────────────────────────────────────────────────────────
 # SSL terminates at CloudFront; nginx proxies HTTP from CloudFront to uvicorn.
