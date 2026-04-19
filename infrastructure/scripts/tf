@@ -1,16 +1,32 @@
 #!/bin/bash
-# Loads project-level AWS credentials and runs terraform
+# Usage: ./infrastructure/scripts/tf <env> <terraform command...>
+# Example: ./infrastructure/scripts/tf dev apply
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/../../.env"
+ROOT="$SCRIPT_DIR/../.."
 
+ENV="$1"
+if [ -z "$ENV" ]; then
+  echo "Usage: tf <environment> <terraform args>"
+  echo "  e.g. tf dev apply"
+  exit 1
+fi
+
+ENV_FILE="$ROOT/.env.$ENV"
 if [ ! -f "$ENV_FILE" ]; then
-  echo "Error: .env file not found at $ENV_FILE"
+  echo "Error: credentials file not found at $ENV_FILE"
+  echo "  Copy .env.example to .env.$ENV and fill in credentials for the $ENV account."
+  exit 1
+fi
+
+ENV_DIR="$SCRIPT_DIR/../environments/$ENV"
+if [ ! -d "$ENV_DIR" ]; then
+  echo "Error: no environment directory at $ENV_DIR"
   exit 1
 fi
 
 set -a && source "$ENV_FILE" && set +a
 
-cd "$SCRIPT_DIR/../terraform"
-terraform "$@"
+cd "$ENV_DIR"
+terraform "${@:2}"

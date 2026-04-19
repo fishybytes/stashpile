@@ -1,28 +1,37 @@
 #!/bin/bash
-# Sync local code to S3 then trigger the instance to pull and restart Expo
+# Usage: ./infrastructure/scripts/deploy <env>
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$SCRIPT_DIR/../.."
-ENV_FILE="$ROOT/.env"
-set -a && source "$ENV_FILE" && set +a
 
-INSTANCE_ID=$(cd "$SCRIPT_DIR/../terraform" && terraform output -raw instance_id 2>/dev/null)
-BUCKET=$(cd "$SCRIPT_DIR/../terraform" && terraform output -raw s3_bucket 2>/dev/null)
+ENV="${1:-dev}"
+ENV_FILE="$ROOT/.env.$ENV"
 
-if [ -z "$INSTANCE_ID" ] || [ -z "$BUCKET" ]; then
-  echo "Error: run ./infrastructure/scripts/tf apply first."
+if [ ! -f "$ENV_FILE" ]; then
+  echo "Error: credentials file not found at $ENV_FILE"
   exit 1
 fi
 
-echo "Syncing code to s3://$BUCKET..."
+set -a && source "$ENV_FILE" && set +a
+
+cd "$SCRIPT_DIR/../environments/$ENV"
+INSTANCE_ID=$(terraform output -raw instance_id 2>/dev/null)
+BUCKET=$(terraform output -raw s3_bucket 2>/dev/null)
+
+if [ -z "$INSTANCE_ID" ] || [ -z "$BUCKET" ]; then
+  echo "Error: run ./infrastructure/scripts/tf $ENV apply first."
+  exit 1
+fi
+
+echo "[$ENV] Syncing code to s3://$BUCKET..."
 aws s3 sync "$ROOT/apps/mobile/" "s3://$BUCKET/apps/mobile/" \
   --exclude "node_modules/*" \
   --exclude ".expo/*" \
   --exclude "*.orig.*" \
   --delete
 
-echo "Triggering deploy on instance..."
+echo "[$ENV] Triggering deploy on instance..."
 COMMAND_ID=$(aws ssm send-command \
   --instance-ids "$INSTANCE_ID" \
   --document-name "AWS-RunShellScript" \
@@ -30,7 +39,7 @@ COMMAND_ID=$(aws ssm send-command \
   --query "Command.CommandId" \
   --output text)
 
-echo "Waiting for deploy to complete..."
+echo "[$ENV] Waiting for deploy to complete..."
 aws ssm wait command-executed \
   --command-id "$COMMAND_ID" \
   --instance-id "$INSTANCE_ID"
@@ -41,8 +50,8 @@ STATUS=$(aws ssm get-command-invocation \
   --query "Status" --output text)
 
 if [ "$STATUS" = "Success" ]; then
-  echo "Deploy complete. Expo is restarting on the instance."
+  echo "[$ENV] Deploy complete."
 else
-  echo "Deploy failed (status: $STATUS). Check SSM Run Command logs."
+  echo "[$ENV] Deploy failed (status: $STATUS)."
   exit 1
 fi
