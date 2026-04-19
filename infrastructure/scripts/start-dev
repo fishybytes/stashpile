@@ -1,0 +1,32 @@
+#!/bin/bash
+# Start the dev server instance and print connection info
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="$SCRIPT_DIR/../../.env"
+set -a && source "$ENV_FILE" && set +a
+
+INSTANCE_ID=$(cd "$SCRIPT_DIR/../terraform" && terraform output -raw instance_id 2>/dev/null)
+PUBLIC_IP=$(cd "$SCRIPT_DIR/../terraform" && terraform output -raw public_ip 2>/dev/null)
+
+if [ -z "$INSTANCE_ID" ]; then
+  echo "Error: no instance found. Run ./infrastructure/scripts/tf apply first."
+  exit 1
+fi
+
+echo "Starting $INSTANCE_ID..."
+aws ec2 start-instances --instance-ids "$INSTANCE_ID" --region us-east-1 > /dev/null
+
+echo "Waiting for instance to be running..."
+aws ec2 wait instance-running --instance-ids "$INSTANCE_ID" --region us-east-1
+
+# Give SSM agent a moment to come online
+sleep 10
+
+echo ""
+echo "Dev server running."
+echo "  Public IP : $PUBLIC_IP"
+echo "  Metro URL : exp://$PUBLIC_IP:8081"
+echo "  SSM shell : aws ssm start-session --target $INSTANCE_ID"
+echo ""
+echo "Open Expo Go on your phone and enter: exp://$PUBLIC_IP:8081"
