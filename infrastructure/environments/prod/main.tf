@@ -25,10 +25,6 @@ variable "domain_name" {
   description = "Root domain (e.g. stashpile.xyz). Must match the global environment."
 }
 
-variable "admin_email" {
-  description = "Email for Let's Encrypt certificate notifications"
-}
-
 data "aws_route53_zone" "main" {
   name         = var.domain_name
   private_zone = false
@@ -55,7 +51,6 @@ module "backend" {
   instance_type = "t3.medium"
   api_domain    = "api.${var.domain_name}"
   zone_id       = data.aws_route53_zone.main.zone_id
-  admin_email   = var.admin_email
   sync_bucket   = module.server.s3_bucket
 }
 

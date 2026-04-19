@@ -6,7 +6,7 @@ echo "=== stashpile backend bootstrap ==="
 
 # ─── System ───────────────────────────────────────────────────────────────────
 dnf update -y
-dnf install -y python3.11 python3.11-pip nginx postgresql15-server certbot python3-certbot-nginx
+dnf install -y python3.11 python3.11-pip nginx postgresql15-server
 
 # ─── Postgres ─────────────────────────────────────────────────────────────────
 postgresql-setup --initdb
@@ -91,10 +91,10 @@ systemctl daemon-reload
 systemctl enable stashpile-api
 
 # ─── nginx ────────────────────────────────────────────────────────────────────
+# SSL terminates at CloudFront; nginx just proxies HTTP from CloudFront to uvicorn.
 cat > /etc/nginx/conf.d/stashpile-api.conf <<EOF
 server {
-    listen 80;
-    server_name ${api_domain};
+    listen 80 default_server;
 
     location / {
         proxy_pass         http://127.0.0.1:8000;
@@ -109,13 +109,4 @@ EOF
 systemctl enable nginx
 systemctl start nginx
 
-# ─── SSL cert ─────────────────────────────────────────────────────────────────
-# Runs after DNS has propagated and is pointing to this IP.
-# Re-run manually once DNS is live:
-#   certbot --nginx -d ${api_domain} --non-interactive --agree-tos -m ${admin_email}
-#
-# Auto-renewal is handled by certbot's systemd timer (installed with the package).
-
 echo "=== Bootstrap complete ==="
-echo "Next step: once DNS is pointing here, run:"
-echo "  certbot --nginx -d ${api_domain} --non-interactive --agree-tos -m ${admin_email}"
