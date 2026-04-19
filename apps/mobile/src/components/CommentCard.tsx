@@ -1,6 +1,8 @@
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AskRedditComment, AskRedditPost } from '../types';
+
+const PAGE = 220;
 
 interface Props {
   comment: AskRedditComment;
@@ -13,9 +15,13 @@ interface Props {
 
 export function CommentCard({ comment, post, parentComment, onParentTap, replies, onReplyTap }: Props) {
   const [parentExpanded, setParentExpanded] = useState(false);
-  const [bodyExpanded, setBodyExpanded] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollY = useRef(0);
 
-  const bodyTruncated = comment.body.length > 400 && !bodyExpanded;
+  useEffect(() => {
+    scrollY.current = 0;
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [comment.commentId]);
 
   return (
     <View style={styles.container}>
@@ -38,17 +44,21 @@ export function CommentCard({ comment, post, parentComment, onParentTap, replies
         </View>
       )}
 
-      <View style={styles.commentArea}>
-        <Text style={styles.commentScore}>↑{comment.score.toLocaleString()}</Text>
-        <Text style={styles.commentBody} numberOfLines={bodyTruncated ? 12 : undefined}>
-          {comment.body}
-        </Text>
-        {comment.body.length > 400 && (
-          <Pressable onPress={() => setBodyExpanded(e => !e)}>
-            <Text style={styles.expandBtn}>{bodyExpanded ? 'Show less' : 'Read more'}</Text>
-          </Pressable>
-        )}
-      </View>
+      <Pressable
+        style={styles.commentArea}
+        onPress={() => scrollRef.current?.scrollTo({ y: scrollY.current + PAGE, animated: true })}
+      >
+        <ScrollView
+          ref={scrollRef}
+          scrollEnabled={false}
+          showsVerticalScrollIndicator={false}
+          onScroll={e => { scrollY.current = e.nativeEvent.contentOffset.y; }}
+          scrollEventThrottle={16}
+        >
+          <Text style={styles.commentScore}>↑{comment.score.toLocaleString()}</Text>
+          <Text style={styles.commentBody}>{comment.body}</Text>
+        </ScrollView>
+      </Pressable>
 
       {replies.length > 0 && (
         <View style={styles.repliesSection}>
@@ -68,7 +78,7 @@ export function CommentCard({ comment, post, parentComment, onParentTap, replies
       )}
 
       <View style={styles.hints}>
-        <Text style={styles.hintText}>↑ new  ·  ← → same thread  ·  ↓ back</Text>
+        <Text style={styles.hintText}>tap = scroll  ·  ↑ new  ·  ← → thread  ·  ↓ back</Text>
       </View>
     </View>
   );
@@ -147,11 +157,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: '#e6edf3',
     lineHeight: 26,
-  },
-  expandBtn: {
-    marginTop: 10,
-    fontSize: 13,
-    color: '#58a6ff',
   },
   repliesSection: {
     marginHorizontal: 16,
