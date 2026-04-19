@@ -55,5 +55,13 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-east-1
 
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.9"
+
+      - name: Terraform Init
+        working-directory: infrastructure/environments/${{ inputs.environment }}
+        run: terraform init
+
       - name: Deploy to server
         run: bash infrastructure/scripts/deploy ${{ inputs.environment }}
