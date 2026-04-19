@@ -6,6 +6,3 @@ variable "instance_type" {
   default = "t3.small"
 }
 
-variable "repo_url" {
-  default = "git@github.com:fishybytes/stashpile.git"
-}

@@ -10,3 +10,7 @@ output "public_ip" {
 output "ssm_connect" {
   value = "aws ssm start-session --target ${aws_instance.dev_server.id}"
 }
+
+output "s3_bucket" {
+  value = aws_s3_bucket.dev_sync.bucket
+}

@@ -11,6 +11,24 @@ provider "aws" {
   region = var.aws_region
 }
 
+data "aws_caller_identity" "current" {}
+
+# S3 bucket for code syncing
+resource "aws_s3_bucket" "dev_sync" {
+  bucket        = "stashpile-dev-sync-${data.aws_caller_identity.current.account_id}"
+  force_destroy = true
+
+  tags = { Project = "stashpile" }
+}
+
+resource "aws_s3_bucket_public_access_block" "dev_sync" {
+  bucket                  = aws_s3_bucket.dev_sync.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 # IAM role for SSM access (no SSH needed)
 resource "aws_iam_role" "dev_server" {
   name = "stashpile-dev-server"
@@ -28,6 +46,23 @@ resource "aws_iam_role" "dev_server" {
 resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.dev_server.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_role_policy" "s3_sync" {
+  name = "stashpile-s3-sync"
+  role = aws_iam_role.dev_server.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:GetObject", "s3:ListBucket"]
+      Resource = [
+        aws_s3_bucket.dev_sync.arn,
+        "${aws_s3_bucket.dev_sync.arn}/*"
+      ]
+    }]
+  })
 }
 
 resource "aws_iam_instance_profile" "dev_server" {
@@ -94,7 +129,7 @@ resource "aws_instance" "dev_server" {
 
   # Instance starts stopped — use start-dev.sh to bring it up
   user_data = base64encode(templatefile("${path.module}/userdata.sh", {
-    repo_url = var.repo_url
+    bucket_name = aws_s3_bucket.dev_sync.bucket
   }))
 
   root_block_device {
