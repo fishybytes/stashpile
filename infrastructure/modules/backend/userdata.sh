@@ -27,19 +27,25 @@ sudo -u postgres psql <<SQL
   ALTER DATABASE stashpile OWNER TO stashpile;
 SQL
 
+# Use md5 auth for TCP connections (default ident auth rejects password-based connections)
+sed -i "s/host    all             all             127.0.0.1\/32            ident/host    all             all             127.0.0.1\/32            md5/" /var/lib/pgsql/data/pg_hba.conf
+sed -i "s/host    all             all             ::1\/128                 ident/host    all             all             ::1\/128                 md5/" /var/lib/pgsql/data/pg_hba.conf
+systemctl reload postgresql
+
 # ─── App user + directories ───────────────────────────────────────────────────
 useradd -m -s /bin/bash stashpile
 mkdir -p /opt/stashpile/api
 chown -R stashpile:stashpile /opt/stashpile
 
 # ─── Python deps ──────────────────────────────────────────────────────────────
-# sentence-transformers downloads the model on first use (~90MB)
+# CPU-only torch first (190MB vs 530MB for the CUDA build)
+pip3.11 install torch --index-url https://download.pytorch.org/whl/cpu
+# sentence-transformers and the rest of the API dependencies
 pip3.11 install \
+  "sentence-transformers" \
   fastapi \
   "uvicorn[standard]" \
-  sqlalchemy \
   psycopg2-binary \
-  sentence-transformers \
   apscheduler \
   httpx \
   pydantic-settings
@@ -70,6 +76,16 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
+
+# ─── Deploy script (called by SSM on each code push) ─────────────────────────
+cat > /usr/local/bin/stashpile-backend-deploy <<DEPLOY
+#!/bin/bash
+set -e
+aws s3 sync s3://${sync_bucket}/apps/backend/ /opt/stashpile/api/ --delete
+chown -R stashpile:stashpile /opt/stashpile/api
+systemctl restart stashpile-api
+DEPLOY
+chmod +x /usr/local/bin/stashpile-backend-deploy
 
 systemctl daemon-reload
 systemctl enable stashpile-api
