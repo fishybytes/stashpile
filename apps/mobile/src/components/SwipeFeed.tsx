@@ -184,15 +184,17 @@ export function SwipeFeed() {
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, { dx, dy }) => Math.abs(dx) > 6 || Math.abs(dy) > 6,
       onPanResponderMove: (_, { dx, dy }) => {
-        position.setValue({ x: dx, y: dy });
-        const dist = Math.min(1, Math.sqrt(dx * dx + dy * dy) / 100);
-        swipeProgress.setValue(dist);
-        // Lock in direction once the user has moved enough to tell
-        if (!dominantDirRef.current && dist > 0.12) {
+        // Lock direction once the user has moved enough to tell
+        if (!dominantDirRef.current && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
           const dir: 'h' | 'v' = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
           dominantDirRef.current = dir;
           setDominantDir(dir);
         }
+        // Once direction is locked, clamp the card to that axis
+        const x = dominantDirRef.current === 'v' ? 0 : dx;
+        const y = dominantDirRef.current === 'h' ? 0 : dy;
+        position.setValue({ x, y });
+        swipeProgress.setValue(Math.min(1, Math.sqrt(x * x + y * y) / 100));
       },
       onPanResponderRelease: (_, { dx, dy, vx, vy }) => {
         const adx = Math.abs(dx);
