@@ -68,6 +68,7 @@ export function SwipeFeed() {
   // Animation values
   const position = useRef(new Animated.ValueXY()).current;
   const swipeProgress = useRef(new Animated.Value(0)).current;
+  const cardOpacity = useRef(new Animated.Value(1)).current;
 
   const commentsById = useMemo(
     () => new Map(allComments.map(c => [c.commentId, c])),
@@ -109,9 +110,10 @@ export function SwipeFeed() {
   }
 
   function showComment(commentId: string, addToHistory = true) {
-    // Reset animation synchronously before React re-renders to avoid flicker
+    // Hide card and reset position before content swap — eliminates the flash
     position.setValue({ x: 0, y: 0 });
     swipeProgress.setValue(0);
+    cardOpacity.setValue(0);
     dominantDirRef.current = null;
     setDominantDir(null);
 
@@ -123,37 +125,30 @@ export function SwipeFeed() {
     setCurrentId(commentId);
 
     computeNextIds(allCommentsRef.current.find(c => c.commentId === commentId) ?? null);
+
+    // Fade the new content in after React has rendered it
+    Animated.timing(cardOpacity, { toValue: 1, duration: 160, useNativeDriver: true }).start();
   }
 
   function animateOut(toX: number, toY: number, done: () => void) {
-    Animated.parallel([
-      Animated.timing(position, {
-        toValue: { x: toX, y: toY },
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(swipeProgress, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start(done);
+    const anims: Animated.CompositeAnimation[] = [
+      Animated.timing(position, { toValue: { x: toX, y: toY }, duration: 200, useNativeDriver: true }),
+      Animated.timing(swipeProgress, { toValue: 1, duration: 200, useNativeDriver: true }),
+    ];
+    // Fade out only on horizontal exits; vertical cards slide fully off screen
+    if (toX !== 0) {
+      anims.push(Animated.timing(cardOpacity, { toValue: 0, duration: 200, useNativeDriver: true }));
+    }
+    Animated.parallel(anims).start(done);
   }
 
   function springBack() {
     dominantDirRef.current = null;
     setDominantDir(null);
     Animated.parallel([
-      Animated.spring(position, {
-        toValue: { x: 0, y: 0 },
-        useNativeDriver: true,
-        bounciness: 8,
-      }),
-      Animated.timing(swipeProgress, {
-        toValue: 0,
-        duration: 220,
-        useNativeDriver: true,
-      }),
+      Animated.spring(position, { toValue: { x: 0, y: 0 }, useNativeDriver: true, bounciness: 8 }),
+      Animated.timing(swipeProgress, { toValue: 0, duration: 220, useNativeDriver: true }),
+      Animated.timing(cardOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
     ]).start();
   }
 
@@ -195,6 +190,10 @@ export function SwipeFeed() {
         const y = dominantDirRef.current === 'h' ? 0 : dy;
         position.setValue({ x, y });
         swipeProgress.setValue(Math.min(1, Math.sqrt(x * x + y * y) / 100));
+        // Fade the card as it moves horizontally
+        if (dominantDirRef.current === 'h') {
+          cardOpacity.setValue(Math.max(0, 1 - Math.abs(x) / (W / 2)));
+        }
       },
       onPanResponderRelease: (_, { dx, dy, vx, vy }) => {
         const adx = Math.abs(dx);
@@ -273,13 +272,6 @@ export function SwipeFeed() {
 
   // ─── Animated interpolations ─────────────────────────────────────────────
 
-  // Slight card tilt on horizontal drag
-  const rotate = position.x.interpolate({
-    inputRange: [-W / 2, 0, W / 2],
-    outputRange: ['-8deg', '0deg', '8deg'],
-    extrapolate: 'clamp',
-  });
-
   // Peek card grows from 93% → 100% as drag progresses
   const peekScale = swipeProgress.interpolate({
     inputRange: [0, 1],
@@ -337,7 +329,7 @@ export function SwipeFeed() {
         <Animated.View
           style={[
             StyleSheet.absoluteFill,
-            { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] },
+            { transform: [{ translateX: position.x }, { translateY: position.y }], opacity: cardOpacity },
           ]}
           {...panResponder.panHandlers}
         >
