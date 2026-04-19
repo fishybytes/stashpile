@@ -14,6 +14,3 @@ output "api_url" {
   value = "https://${var.api_domain}"
 }
 
-output "db_password_ssm_path" {
-  value = aws_ssm_parameter.db_password.name
-}
