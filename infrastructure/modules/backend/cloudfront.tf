@@ -40,7 +40,7 @@ resource "aws_cloudfront_distribution" "api" {
   comment     = "${local.name} API"
 
   origin {
-    domain_name = aws_eip.backend.public_ip
+    domain_name = aws_eip.backend.public_dns
     origin_id   = "backend-ec2"
 
     custom_origin_config {
