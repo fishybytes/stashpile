@@ -133,7 +133,7 @@ resource "aws_instance" "dev_server" {
   }))
 
   root_block_device {
-    volume_size = 20
+    volume_size = 30
   }
 
   tags = {
