@@ -10,6 +10,19 @@ export interface BackendComment {
   body: string;
   score: number;
   depth: number;
+  top_topic?: string;
+  topic_score?: number;
+  user_similarity?: number;
+}
+
+export interface TopicScore {
+  topic: string;
+  score: number;
+}
+
+export interface UserProfile {
+  top_topics: TopicScore[];
+  event_count: number;
 }
 
 export async function fetchFeed(
@@ -44,6 +57,9 @@ export async function fetchFeed(
       score: c.score,
       depth: c.depth,
       fetchedAt: now,
+      topTopic: c.top_topic,
+      topicScore: c.topic_score,
+      userSimilarity: c.user_similarity,
     };
   });
 
@@ -79,6 +95,12 @@ export async function ingestComments(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+export async function fetchProfile(userId = 'default'): Promise<UserProfile> {
+  const res = await fetch(`${BASE_URL}/profile?user_id=${encodeURIComponent(userId)}`);
+  if (!res.ok) throw new Error(`Profile fetch failed: ${res.status}`);
+  return res.json();
 }
 
 export async function postEvent(

@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+function capitalize(s: string) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
 import { AskRedditComment, AskRedditPost } from '../types';
 
 const PAGE = 220;
@@ -18,6 +22,7 @@ interface Props {
 
 export function CommentCard({ comment, post, parentComment, onParentTap, replies, onReplyTap, fontSize, isSaved, onSave }: Props) {
   const [parentExpanded, setParentExpanded] = useState(false);
+  const [infoVisible, setInfoVisible] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0);
   const areaHeight = useRef(0);
@@ -31,6 +36,7 @@ export function CommentCard({ comment, post, parentComment, onParentTap, replies
     scrollRef.current?.scrollTo({ y: 0, animated: false });
     if (tapTimeout.current) clearTimeout(tapTimeout.current);
     lastTapTime.current = 0;
+    setInfoVisible(false);
   }, [comment.commentId]);
 
   function flashSaveIndicator() {
@@ -98,7 +104,31 @@ export function CommentCard({ comment, post, parentComment, onParentTap, replies
           <View style={styles.commentMeta}>
             <Text style={styles.commentScore}>↑{comment.score.toLocaleString()}</Text>
             {comment.author ? <Text style={styles.commentAuthor}>u/{comment.author}</Text> : null}
+            <View style={styles.metaSpacer} />
+            {comment.topTopic && (
+              <Pressable style={styles.infoBtn} onPress={() => setInfoVisible(v => !v)} hitSlop={8}>
+                <Text style={[styles.infoBtnText, infoVisible && styles.infoBtnActive]}>ⓘ</Text>
+              </Pressable>
+            )}
           </View>
+
+          {infoVisible && comment.topTopic && (
+            <View style={styles.infoPanel}>
+              <View style={styles.infoPanelRow}>
+                <Text style={styles.infoPanelLabel}>Topic</Text>
+                <Text style={styles.infoPanelValue}>{capitalize(comment.topTopic)}</Text>
+              </View>
+              {comment.userSimilarity != null && (
+                <View style={styles.infoPanelRow}>
+                  <Text style={styles.infoPanelLabel}>Taste match</Text>
+                  <View style={styles.matchBarWrap}>
+                    <View style={[styles.matchBar, { width: `${Math.round(comment.userSimilarity * 100)}%` as any }]} />
+                  </View>
+                  <Text style={styles.infoPanelValue}>{Math.round(comment.userSimilarity * 100)}%</Text>
+                </View>
+              )}
+            </View>
+          )}
           <Text style={[styles.commentBody, { fontSize, lineHeight: fontSize * 1.55 }]}>{comment.body}</Text>
         </ScrollView>
         <Animated.Text style={[styles.saveFlash, { opacity: saveFlashOpacity }]}>
@@ -210,6 +240,57 @@ const styles = StyleSheet.create({
   },
   commentBody: {
     color: '#e6edf3',
+  },
+  metaSpacer: {
+    flex: 1,
+  },
+  infoBtn: {
+    paddingHorizontal: 4,
+  },
+  infoBtnText: {
+    fontSize: 16,
+    color: '#484f58',
+  },
+  infoBtnActive: {
+    color: '#58a6ff',
+  },
+  infoPanel: {
+    marginTop: 4,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#161b22',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#30363d',
+    gap: 8,
+  },
+  infoPanelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  infoPanelLabel: {
+    fontSize: 12,
+    color: '#8b949e',
+    width: 82,
+  },
+  infoPanelValue: {
+    fontSize: 13,
+    color: '#e6edf3',
+    fontWeight: '500',
+  },
+  matchBarWrap: {
+    flex: 1,
+    height: 4,
+    backgroundColor: '#21262d',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  matchBar: {
+    height: 4,
+    backgroundColor: '#ff4500',
+    borderRadius: 2,
   },
   saveFlash: {
     position: 'absolute',
