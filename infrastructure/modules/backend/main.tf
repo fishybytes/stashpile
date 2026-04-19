@@ -81,7 +81,7 @@ resource "aws_security_group" "backend" {
   description = "stashpile backend API"
 
   ingress {
-    description = "HTTP (Let's Encrypt validation + redirect)"
+    description = "HTTP for certbot and redirect"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
@@ -141,7 +141,7 @@ resource "aws_instance" "backend" {
 
   root_block_device {
     # Extra space for Postgres data and the sentence-transformers model (~500MB)
-    volume_size = 20
+    volume_size = 30
   }
 
   tags = merge(local.tags, { Name = local.name })
