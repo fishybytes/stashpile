@@ -265,7 +265,7 @@ export function SwipeFeed() {
   const topReplies = useMemo(() => {
     if (!current) return [];
     return allComments
-      .filter(c => c.parentId === current.commentId && !seenIds.current.has(c.commentId))
+      .filter(c => c.parentId === current.commentId && c.commentId !== currentId)
       .sort((a, b) => b.score - a.score)
       .slice(0, 3);
   }, [currentId, allComments]);
