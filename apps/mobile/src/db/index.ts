@@ -180,9 +180,10 @@ export function upsertAskRedditPosts(posts: AskRedditPost[]) {
 
 export function upsertAskRedditComments(comments: AskRedditComment[]) {
   const stmt = db.prepareSync(`
-    INSERT OR REPLACE INTO askreddit_comments
+    INSERT INTO askreddit_comments
       (comment_id, post_id, parent_id, author, body, score, depth, fetched_at)
     VALUES ($commentId, $postId, $parentId, $author, $body, $score, $depth, $fetchedAt)
+    ON CONFLICT(comment_id) DO UPDATE SET score = excluded.score
   `);
   for (const c of comments) {
     stmt.executeSync({
@@ -191,6 +192,17 @@ export function upsertAskRedditComments(comments: AskRedditComment[]) {
     });
   }
   stmt.finalizeSync();
+}
+
+// Returns comments from `ids` whose fetched_at > since (ms).
+// Because upsertAskRedditComments preserves fetched_at on conflict, this reliably
+// identifies first-seen comments — i.e. ones the backend hasn't ingested yet.
+export function getCommentsSince(ids: string[], since: number): AskRedditComment[] {
+  if (!ids.length) return [];
+  const idSet = new Set(ids);
+  return db.getAllSync<any>('SELECT * FROM askreddit_comments WHERE fetched_at > ?', since)
+    .filter(row => idSet.has(row.comment_id))
+    .map(rowToComment);
 }
 
 export function getAllAskRedditComments(): AskRedditComment[] {
