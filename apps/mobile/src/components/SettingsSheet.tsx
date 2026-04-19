@@ -15,9 +15,10 @@ interface Props {
   fontSize: FontSizeKey;
   onFontSizeChange: (s: FontSizeKey) => void;
   onOpenSaved: () => void;
+  onOpenProfile: () => void;
 }
 
-export function SettingsSheet({ visible, onClose, fontSize, onFontSizeChange, onOpenSaved }: Props) {
+export function SettingsSheet({ visible, onClose, fontSize, onFontSizeChange, onOpenSaved, onOpenProfile }: Props) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
@@ -48,6 +49,10 @@ export function SettingsSheet({ visible, onClose, fontSize, onFontSizeChange, on
           <Text style={styles.section}>Library</Text>
           <Pressable style={styles.row} onPress={onOpenSaved}>
             <Text style={styles.rowLabel}>Saved comments</Text>
+            <Text style={styles.rowArrow}>›</Text>
+          </Pressable>
+          <Pressable style={styles.row} onPress={onOpenProfile}>
+            <Text style={styles.rowLabel}>Taste profile</Text>
             <Text style={styles.rowArrow}>›</Text>
           </Pressable>
 

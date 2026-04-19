@@ -43,7 +43,10 @@ export function initDb() {
       body TEXT NOT NULL,
       score INTEGER DEFAULT 0,
       depth INTEGER DEFAULT 0,
-      fetched_at INTEGER NOT NULL
+      fetched_at INTEGER NOT NULL,
+      top_topic TEXT,
+      topic_score REAL,
+      user_similarity REAL
     );
 
     CREATE TABLE IF NOT EXISTS comment_reading_sessions (
@@ -78,6 +81,15 @@ export function initDb() {
       saved_at INTEGER NOT NULL
     );
   `);
+
+  // Migrate existing installs that predate the classification columns
+  for (const sql of [
+    'ALTER TABLE askreddit_comments ADD COLUMN top_topic TEXT',
+    'ALTER TABLE askreddit_comments ADD COLUMN topic_score REAL',
+    'ALTER TABLE askreddit_comments ADD COLUMN user_similarity REAL',
+  ]) {
+    try { db.execSync(sql); } catch {}
+  }
 }
 
 // ─── Legacy article feed ──────────────────────────────────────────────────────
@@ -161,6 +173,9 @@ function rowToComment(row: any): AskRedditComment {
     score: row.score,
     depth: row.depth,
     fetchedAt: row.fetched_at,
+    topTopic: row.top_topic ?? undefined,
+    topicScore: row.topic_score ?? undefined,
+    userSimilarity: row.user_similarity ?? undefined,
   };
 }
 
@@ -181,14 +196,23 @@ export function upsertAskRedditPosts(posts: AskRedditPost[]) {
 export function upsertAskRedditComments(comments: AskRedditComment[]) {
   const stmt = db.prepareSync(`
     INSERT INTO askreddit_comments
-      (comment_id, post_id, parent_id, author, body, score, depth, fetched_at)
-    VALUES ($commentId, $postId, $parentId, $author, $body, $score, $depth, $fetchedAt)
-    ON CONFLICT(comment_id) DO UPDATE SET score = excluded.score
+      (comment_id, post_id, parent_id, author, body, score, depth, fetched_at,
+       top_topic, topic_score, user_similarity)
+    VALUES ($commentId, $postId, $parentId, $author, $body, $score, $depth, $fetchedAt,
+            $topTopic, $topicScore, $userSimilarity)
+    ON CONFLICT(comment_id) DO UPDATE SET
+      score           = excluded.score,
+      top_topic       = COALESCE(excluded.top_topic, top_topic),
+      topic_score     = COALESCE(excluded.topic_score, topic_score),
+      user_similarity = COALESCE(excluded.user_similarity, user_similarity)
   `);
   for (const c of comments) {
     stmt.executeSync({
       $commentId: c.commentId, $postId: c.postId, $parentId: c.parentId,
       $author: c.author, $body: c.body, $score: c.score, $depth: c.depth, $fetchedAt: c.fetchedAt,
+      $topTopic: c.topTopic ?? null,
+      $topicScore: c.topicScore ?? null,
+      $userSimilarity: c.userSimilarity ?? null,
     });
   }
   stmt.finalizeSync();

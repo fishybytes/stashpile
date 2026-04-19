@@ -30,6 +30,7 @@ import { AskRedditComment, AskRedditPost } from '../types';
 import { CommentCard } from './CommentCard';
 import { FONT_SIZE_VALUES, FontSizeKey, SettingsSheet } from './SettingsSheet';
 import { SavedSheet } from './SavedSheet';
+import { ProfileSheet } from './ProfileSheet';
 
 const { height: H } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 80;
@@ -57,6 +58,7 @@ export function SwipeFeed() {
   const [fontSizeKey, setFontSizeKey] = useState<FontSizeKey>('medium');
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [savedVisible, setSavedVisible] = useState(false);
+  const [profileVisible, setProfileVisible] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
 
   // Mutable refs — safe to read from PanResponder without stale closures
@@ -411,7 +413,7 @@ export function SwipeFeed() {
                 ? <ActivityIndicator color="#8b949e" size="small" />
                 : <Text style={styles.topBarBtnText}>↻</Text>}
             </Pressable>
-            <Pressable style={styles.topBarBtn} onPress={() => { pauseViewTimer(); setSettingsVisible(true); }}>
+            <Pressable style={styles.topBarBtn} onPress={() => { pauseViewTimer(); setSettingsVisible(true); }} hitSlop={4}>
               <Text style={styles.topBarBtnText}>⚙</Text>
             </Pressable>
           </View>
@@ -424,11 +426,16 @@ export function SwipeFeed() {
         fontSize={fontSizeKey}
         onFontSizeChange={handleFontSizeChange}
         onOpenSaved={() => { setSettingsVisible(false); setSavedVisible(true); }}
+        onOpenProfile={() => { setSettingsVisible(false); setProfileVisible(true); }}
       />
       <SavedSheet
         visible={savedVisible}
         onClose={() => { setSavedVisible(false); resumeViewTimer(); }}
         onNavigate={(id) => { history.current.push(id); showComment(id); }}
+      />
+      <ProfileSheet
+        visible={profileVisible}
+        onClose={() => { setProfileVisible(false); resumeViewTimer(); }}
       />
     </View>
   );

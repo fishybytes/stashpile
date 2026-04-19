@@ -2,7 +2,9 @@
 stashpile backend API
 
 GET  /health
+GET  /ingest/cursor
 GET  /feed?user_id=default&limit=50&seen=id1,id2,...
+GET  /profile?user_id=default
 POST /events  {"user_id":"default","comment_id":"...","event_type":"view|save|skip","duration_ms":0}
 POST /ingest  {"comments":[{"comment_id":"...","post_id":"...","post_title":"...","author":"...","body":"...","score":0,"depth":0},...]}
 """
@@ -29,6 +31,34 @@ log = logging.getLogger(__name__)
 DB_PATH = os.environ.get("DB_PATH", "/var/lib/stashpile/stashpile.db")
 _db_lock = threading.Lock()
 
+TOPICS = [
+    "technology & software",
+    "science & research",
+    "politics & government",
+    "history & culture",
+    "philosophy & ethics",
+    "personal advice",
+    "relationships & family",
+    "career & workplace",
+    "finance & investing",
+    "health & medicine",
+    "humor & jokes",
+    "gaming",
+    "movies & TV",
+    "music",
+    "sports",
+    "food & cooking",
+    "travel & places",
+    "environment & climate",
+    "education & learning",
+    "law & justice",
+    "space & astronomy",
+    "psychology & behavior",
+    "business & startups",
+    "art & design",
+    "news & current events",
+]
+
 # ─── DB ───────────────────────────────────────────────────────────────────────
 
 def get_conn() -> sqlite3.Connection:
@@ -51,7 +81,9 @@ def init_db():
                 score       INTEGER DEFAULT 0,
                 depth       INTEGER DEFAULT 0,
                 fetched_at  REAL NOT NULL DEFAULT (unixepoch()),
-                embedding   TEXT
+                embedding   TEXT,
+                top_topic   TEXT,
+                topic_score REAL
             );
             CREATE INDEX IF NOT EXISTS idx_comments_fetched ON comments (fetched_at DESC);
 
@@ -72,20 +104,43 @@ def init_db():
                 updated_at  REAL NOT NULL DEFAULT (unixepoch())
             );
         """)
+        # Migrate existing schema (no-op if columns already exist)
+        for col in [
+            "ALTER TABLE comments ADD COLUMN top_topic TEXT",
+            "ALTER TABLE comments ADD COLUMN topic_score REAL",
+        ]:
+            try:
+                conn.execute(col)
+            except Exception:
+                pass
+        conn.commit()
     log.info("DB initialised at %s", DB_PATH)
 
 # ─── Model ────────────────────────────────────────────────────────────────────
 
 model: SentenceTransformer | None = None
+topic_embeddings: np.ndarray | None = None   # shape (n_topics, 384)
 
 def load_model():
-    global model
+    global model, topic_embeddings
     log.info("Loading all-MiniLM-L6-v2...")
     model = SentenceTransformer("all-MiniLM-L6-v2")
+    log.info("Embedding %d topic labels...", len(TOPICS))
+    topic_embeddings = model.encode(
+        TOPICS, batch_size=64, show_progress_bar=False, normalize_embeddings=True
+    )
     log.info("Model ready")
 
 def embed_texts(texts: list[str]) -> np.ndarray:
     return model.encode(texts, batch_size=64, show_progress_bar=False, normalize_embeddings=True)
+
+def classify_comment(emb: np.ndarray) -> tuple[str, float]:
+    """Returns (top_topic, score) for a normalised comment embedding."""
+    if topic_embeddings is None:
+        return ("", 0.0)
+    sims = topic_embeddings @ emb
+    idx = int(np.argmax(sims))
+    return (TOPICS[idx], float(sims[idx]))
 
 # ─── Embed + store ────────────────────────────────────────────────────────────
 
@@ -110,21 +165,24 @@ def store_comments(records: list[dict]):
 
     log.info("Embedding %d new comments...", len(new))
     embeddings = embed_texts([r["body"] for r in new])
+    topics = [classify_comment(emb) for emb in embeddings]
 
     with _db_lock:
         with get_conn() as conn:
             conn.executemany(
                 """
                 INSERT INTO comments
-                    (comment_id, post_id, post_title, author, body, score, depth, fetched_at, embedding)
-                VALUES (?,?,?,?,?,?,?,unixepoch(),?)
+                    (comment_id, post_id, post_title, author, body, score, depth,
+                     fetched_at, embedding, top_topic, topic_score)
+                VALUES (?,?,?,?,?,?,?,unixepoch(),?,?,?)
                 ON CONFLICT (comment_id) DO UPDATE SET
                     score = excluded.score, fetched_at = unixepoch()
                 """,
                 [
                     (r["comment_id"], r["post_id"], r["post_title"], r["author"],
-                     r["body"], r["score"], r["depth"], json.dumps(emb.tolist()))
-                    for r, emb in zip(new, embeddings)
+                     r["body"], r["score"], r["depth"],
+                     json.dumps(emb.tolist()), topic, score)
+                    for r, emb, (topic, score) in zip(new, embeddings, topics)
                 ],
             )
     log.info("Stored %d comments", len(new))
@@ -194,7 +252,8 @@ def build_feed(user_id: str, seen_ids: set[str], limit: int) -> list[dict]:
         cutoff = now_ts - 48 * 3600
         rows = conn.execute(
             """
-            SELECT comment_id, post_id, post_title, author, body, score, depth, fetched_at, embedding
+            SELECT comment_id, post_id, post_title, author, body, score, depth,
+                   fetched_at, embedding, top_topic, topic_score
             FROM   comments
             WHERE  fetched_at > ?
             ORDER  BY fetched_at DESC
@@ -217,15 +276,18 @@ def build_feed(user_id: str, seen_ids: set[str], limit: int) -> list[dict]:
             sim   = float(np.dot(u_emb, c_emb))
             rank  = 0.7 * (sim + 1) / 2 + 0.3 * baseline
         else:
+            sim  = None
             rank = baseline
 
-        scored.append((rank, dict(row)))
+        scored.append((rank, sim, dict(row)))
 
     scored.sort(key=lambda x: x[0], reverse=True)
     result = []
-    for _, row in scored[:limit]:
+    for _, sim, row in scored[:limit]:
         row.pop("embedding", None)
         row.pop("fetched_at", None)
+        # user_similarity: map [-1,1] → [0,1] for easier display
+        row["user_similarity"] = round((sim + 1) / 2, 3) if sim is not None else None
         result.append(row)
     return result
 
@@ -266,6 +328,13 @@ async def ingest(req: IngestRequest, bg: BackgroundTasks):
     bg.add_task(store_comments, [c.model_dump() for c in req.comments])
     return {"ok": True, "queued": len(req.comments)}
 
+@app.get("/ingest/cursor")
+def get_ingest_cursor():
+    with get_conn() as conn:
+        row = conn.execute("SELECT MAX(fetched_at) AS latest FROM comments").fetchone()
+        cursor = row["latest"] if row and row["latest"] else 0
+    return {"cursor": cursor}  # unix seconds; 0 means no data yet
+
 class EventIn(BaseModel):
     user_id:     str = "default"
     comment_id:  str
@@ -283,15 +352,34 @@ async def post_event(req: EventIn, bg: BackgroundTasks):
     bg.add_task(update_profile, req.user_id, req.comment_id, req.event_type, req.duration_ms)
     return {"ok": True}
 
-@app.get("/ingest/cursor")
-def get_ingest_cursor():
-    with get_conn() as conn:
-        row = conn.execute("SELECT MAX(fetched_at) AS latest FROM comments").fetchone()
-        cursor = row["latest"] if row and row["latest"] else 0
-    return {"cursor": cursor}  # unix seconds; 0 means no data yet
-
 @app.get("/feed")
 def get_feed(user_id: str = "default", limit: int = 50, seen: str = ""):
     seen_ids = set(seen.split(",")) if seen else set()
     comments = build_feed(user_id, seen_ids, min(limit, 200))
     return {"comments": comments, "count": len(comments)}
+
+@app.get("/profile")
+def get_profile(user_id: str = "default"):
+    with get_conn() as conn:
+        profile = conn.execute(
+            "SELECT embedding, event_count FROM user_profiles WHERE user_id = ?", (user_id,)
+        ).fetchone()
+
+    if not profile or not profile["embedding"] or topic_embeddings is None:
+        return {"top_topics": [], "event_count": 0}
+
+    u_emb = np.array(json.loads(profile["embedding"]), dtype=np.float32)
+    sims = topic_embeddings @ u_emb   # shape (n_topics,)
+
+    # Sort all topics by similarity, return top 10 with positive scores
+    order = np.argsort(sims)[::-1]
+    top_topics = [
+        {"topic": TOPICS[i], "score": round(float(sims[i]), 3)}
+        for i in order[:10]
+        if sims[i] > 0
+    ]
+
+    return {
+        "top_topics": top_topics,
+        "event_count": int(profile["event_count"]),
+    }

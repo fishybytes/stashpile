@@ -17,6 +17,10 @@ export interface AskRedditComment {
   score: number;
   depth: number;
   fetchedAt: number;
+  // Populated after backend ranking — not persisted between sessions
+  topTopic?: string;
+  topicScore?: number;
+  userSimilarity?: number;
 }
 
 export interface Article {
