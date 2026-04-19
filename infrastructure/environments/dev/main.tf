@@ -31,7 +31,8 @@ variable "admin_email" {
 
 # Look up the hosted zone created in the global environment
 data "aws_route53_zone" "main" {
-  name = var.domain_name
+  name         = var.domain_name
+  private_zone = false
 }
 
 # ─── Expo server (existing) ───────────────────────────────────────────────────
