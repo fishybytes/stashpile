@@ -88,7 +88,7 @@ export function CommentCard({ comment, post, parentComment, onParentTap, replies
       )}
 
       <View style={styles.hints}>
-        <Text style={styles.hintText}>tap = scroll  ·  ↑ new  ·  ← → thread  ·  ↓ back</Text>
+        <Text style={styles.hintText}>tap = scroll  ·  ↑ next  ·  ↓ back</Text>
       </View>
     </View>
   );

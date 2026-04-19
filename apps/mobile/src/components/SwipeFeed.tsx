@@ -28,7 +28,7 @@ import { CommentCard } from './CommentCard';
 import { FONT_SIZE_VALUES, FontSizeKey, SettingsSheet } from './SettingsSheet';
 import { SavedSheet } from './SavedSheet';
 
-const { width: W, height: H } = Dimensions.get('window');
+const { height: H } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 80;
 const VELOCITY_THRESHOLD = 0.5;
 
@@ -49,9 +49,6 @@ export function SwipeFeed() {
   const [postsById, setPostsById] = useState<Map<string, AskRedditPost>>(new Map());
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [nextGlobalId, setNextGlobalId] = useState<string | null>(null);
-  const [nextThreadId, setNextThreadId] = useState<string | null>(null);
-  // dominantDir drives which peek card to show; set once per drag, cleared on release
-  const [dominantDir, setDominantDir] = useState<'h' | 'v' | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [fontSizeKey, setFontSizeKey] = useState<FontSizeKey>('medium');
@@ -65,14 +62,11 @@ export function SwipeFeed() {
   const viewStart = useRef(0);
   const allCommentsRef = useRef<AskRedditComment[]>([]);
   const currentIdRef = useRef<string | null>(null);
-  const dominantDirRef = useRef<'h' | 'v' | null>(null);
   const nextGlobalIdRef = useRef<string | null>(null);
-  const nextThreadIdRef = useRef<string | null>(null);
 
   useEffect(() => { allCommentsRef.current = allComments; }, [allComments]);
   useEffect(() => { currentIdRef.current = currentId; }, [currentId]);
   useEffect(() => { nextGlobalIdRef.current = nextGlobalId; }, [nextGlobalId]);
-  useEffect(() => { nextThreadIdRef.current = nextThreadId; }, [nextThreadId]);
 
   // Animation values
   const position = useRef(new Animated.ValueXY()).current;
@@ -91,22 +85,10 @@ export function SwipeFeed() {
     );
   }
 
-  function computeNextIds(currentComment: AskRedditComment | null) {
+  function computeNextIds() {
     const nextG = weightedRandom(getAvailable());
     setNextGlobalId(nextG?.commentId ?? null);
     nextGlobalIdRef.current = nextG?.commentId ?? null;
-
-    if (currentComment) {
-      const nextT = weightedRandom(
-        getAvailable(currentComment.postId).filter(c => c.commentId !== nextG?.commentId)
-      );
-      const tid = nextT?.commentId ?? nextG?.commentId ?? null;
-      setNextThreadId(tid);
-      nextThreadIdRef.current = tid;
-    } else {
-      setNextThreadId(nextG?.commentId ?? null);
-      nextThreadIdRef.current = nextG?.commentId ?? null;
-    }
   }
 
   function flushCurrentView() {
@@ -152,29 +134,19 @@ export function SwipeFeed() {
 
     Animated.timing(cardOpacity, { toValue: 1, duration: 160, useNativeDriver: true }).start(({ finished }) => {
       if (!finished) return;
-      // Current card is now fully opaque and covers the peek card — safe to reset
       swipeProgress.setValue(0);
-      dominantDirRef.current = null;
-      setDominantDir(null);
-      computeNextIds(allCommentsRef.current.find(c => c.commentId === commentId) ?? null);
+      computeNextIds();
     });
   }
 
-  function animateOut(toX: number, toY: number, done: () => void) {
-    const anims: Animated.CompositeAnimation[] = [
-      Animated.timing(position, { toValue: { x: toX, y: toY }, duration: 200, useNativeDriver: true }),
+  function animateOut(toY: number, done: () => void) {
+    Animated.parallel([
+      Animated.timing(position, { toValue: { x: 0, y: toY }, duration: 200, useNativeDriver: true }),
       Animated.timing(swipeProgress, { toValue: 1, duration: 200, useNativeDriver: true }),
-    ];
-    // Fade out only on horizontal exits; vertical cards slide fully off screen
-    if (toX !== 0) {
-      anims.push(Animated.timing(cardOpacity, { toValue: 0, duration: 200, useNativeDriver: true }));
-    }
-    Animated.parallel(anims).start(done);
+    ]).start(done);
   }
 
   function springBack() {
-    dominantDirRef.current = null;
-    setDominantDir(null);
     Animated.parallel([
       Animated.spring(position, { toValue: { x: 0, y: 0 }, useNativeDriver: true, bounciness: 8 }),
       Animated.timing(swipeProgress, { toValue: 0, duration: 220, useNativeDriver: true }),
@@ -186,19 +158,14 @@ export function SwipeFeed() {
   const handlers = {
     nextGlobal() {
       const nid = nextGlobalIdRef.current ?? weightedRandom(getAvailable())?.commentId;
-      if (nid) animateOut(0, -H * 1.5, () => showComment(nid));
-      else springBack();
-    },
-    nextThread() {
-      const nid = nextThreadIdRef.current ?? nextGlobalIdRef.current ?? weightedRandom(getAvailable())?.commentId;
-      if (nid) animateOut(-W * 1.5, 0, () => showComment(nid));
+      if (nid) animateOut(-H * 1.5, () => showComment(nid));
       else springBack();
     },
     goBack() {
       if (history.current.length < 2) { springBack(); return; }
       const prev = history.current[history.current.length - 2];
       history.current.pop();
-      animateOut(0, H * 1.5, () => showComment(prev, false));
+      animateOut(H * 1.5, () => showComment(prev, false));
     },
   };
   const handlersRef = useRef(handlers);
@@ -207,33 +174,16 @@ export function SwipeFeed() {
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, { dx, dy }) => Math.abs(dx) > 6 || Math.abs(dy) > 6,
-      onPanResponderMove: (_, { dx, dy }) => {
-        // Lock direction once the user has moved enough to tell
-        if (!dominantDirRef.current && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
-          const dir: 'h' | 'v' = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
-          dominantDirRef.current = dir;
-          setDominantDir(dir);
-        }
-        // Once direction is locked, clamp the card to that axis
-        const x = dominantDirRef.current === 'v' ? 0 : dx;
-        const y = dominantDirRef.current === 'h' ? 0 : dy;
-        position.setValue({ x, y });
-        swipeProgress.setValue(Math.min(1, Math.sqrt(x * x + y * y) / 100));
-        // Fade the card as it moves horizontally
-        if (dominantDirRef.current === 'h') {
-          cardOpacity.setValue(Math.max(0, 1 - Math.abs(x) / (W / 2)));
-        }
+      onMoveShouldSetPanResponder: (_, { dy }) => Math.abs(dy) > 6,
+      onPanResponderMove: (_, { dy }) => {
+        position.setValue({ x: 0, y: dy });
+        swipeProgress.setValue(Math.min(1, Math.abs(dy) / 100));
       },
-      onPanResponderRelease: (_, { dx, dy, vx, vy }) => {
-        const adx = Math.abs(dx);
+      onPanResponderRelease: (_, { dy, vy }) => {
         const ady = Math.abs(dy);
-        const speed = Math.sqrt(vx * vx + vy * vy);
-        const fastEnough = speed > VELOCITY_THRESHOLD;
-        if (ady > adx && (ady > SWIPE_THRESHOLD || (fastEnough && ady > 20))) {
+        const fastEnough = Math.abs(vy) > VELOCITY_THRESHOLD;
+        if (ady > SWIPE_THRESHOLD || (fastEnough && ady > 20)) {
           dy < 0 ? handlersRef.current.nextGlobal() : handlersRef.current.goBack();
-        } else if (adx > ady && (adx > SWIPE_THRESHOLD || (fastEnough && adx > 20))) {
-          handlersRef.current.nextThread();
         } else {
           springBack();
         }
@@ -261,6 +211,8 @@ export function SwipeFeed() {
       if (!currentIdRef.current) {
         const first = weightedRandom(fresh.filter(c => !seenIds.current.has(c.commentId)));
         if (first) showComment(first.commentId);
+      } else {
+        computeNextIds();
       }
     } catch {
       // network unavailable — fail silently
@@ -288,9 +240,7 @@ export function SwipeFeed() {
   const currentPost = current ? postsById.get(current.postId) ?? null : null;
   const parentComment = current?.parentId ? commentsById.get(current.parentId) ?? null : null;
 
-  // Which peek card to show depends on the drag direction established so far
-  const peekId = dominantDir === 'h' ? nextThreadId : nextGlobalId;
-  const peekComment = peekId ? commentsById.get(peekId) ?? null : null;
+  const peekComment = nextGlobalId ? commentsById.get(nextGlobalId) ?? null : null;
   const peekPost = peekComment ? postsById.get(peekComment.postId) ?? null : null;
   const peekParent = peekComment?.parentId ? commentsById.get(peekComment.parentId) ?? null : null;
 
