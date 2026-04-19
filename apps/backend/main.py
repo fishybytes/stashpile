@@ -283,6 +283,13 @@ async def post_event(req: EventIn, bg: BackgroundTasks):
     bg.add_task(update_profile, req.user_id, req.comment_id, req.event_type, req.duration_ms)
     return {"ok": True}
 
+@app.get("/ingest/cursor")
+def get_ingest_cursor():
+    with get_conn() as conn:
+        row = conn.execute("SELECT MAX(fetched_at) AS latest FROM comments").fetchone()
+        cursor = row["latest"] if row and row["latest"] else 0
+    return {"cursor": cursor}  # unix seconds; 0 means no data yet
+
 @app.get("/feed")
 def get_feed(user_id: str = "default", limit: int = 50, seen: str = ""):
     seen_ids = set(seen.split(",")) if seen else set()

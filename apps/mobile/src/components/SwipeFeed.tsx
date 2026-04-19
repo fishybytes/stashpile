@@ -13,6 +13,7 @@ import {
 import {
   getAllAskRedditComments,
   getAllAskRedditPosts,
+  getCommentsSince,
   getSetting,
   hasAskRedditComments,
   isCommentSaved,
@@ -24,7 +25,7 @@ import {
   upsertAskRedditPosts,
 } from '../db';
 import { fetchAskRedditBatch } from '../services/askreddit';
-import { fetchFeed, ingestComments, postEvent } from '../services/backendApi';
+import { fetchFeed, fetchIngestCursor, ingestComments, postEvent } from '../services/backendApi';
 import { AskRedditComment, AskRedditPost } from '../types';
 import { CommentCard } from './CommentCard';
 import { FONT_SIZE_VALUES, FontSizeKey, SettingsSheet } from './SettingsSheet';
@@ -232,16 +233,24 @@ export function SwipeFeed() {
   async function handleSync() {
     setSyncing(true);
     try {
-      // 1. Fetch raw content from Reddit/HN directly (residential IP, no blocking)
+      // Ask backend what it already has so we only ship new content
+      const cursorMs = await fetchIngestCursor().catch(() => 0);
+
+      // Fetch raw content from Reddit/HN (residential IP, no blocking)
       const { posts: freshPosts, comments: freshComments } = await fetchAskRedditBatch(20);
       upsertAskRedditPosts(freshPosts);
+      // Upsert preserves original fetched_at for existing comments (ON CONFLICT score only)
       upsertAskRedditComments(freshComments);
 
-      // 2. Ship to backend for embedding + ranking (fire-and-forget the ingest)
-      const postTitles = new Map(freshPosts.map(p => [p.postId, p.title]));
-      ingestComments(freshComments, postTitles).catch(() => {});
+      // Ship only comments the backend hasn't seen yet (fetched_at > cursor)
+      const freshIds = freshComments.map(c => c.commentId);
+      const toIngest = getCommentsSince(freshIds, cursorMs);
+      if (toIngest.length > 0) {
+        const postTitles = new Map(freshPosts.map(p => [p.postId, p.title]));
+        ingestComments(toIngest, postTitles).catch(() => {});
+      }
 
-      // 3. Get ranked feed back from backend (falls back to local DB on failure)
+      // Get ranked feed back from backend (falls back to local DB on failure)
       let posts: AskRedditPost[], comments: AskRedditComment[];
       try {
         ({ posts, comments } = await fetchFeed('default', [...seenIds.current], 60));

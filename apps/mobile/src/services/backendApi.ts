@@ -50,6 +50,14 @@ export async function fetchFeed(
   return { comments, posts: Array.from(postsMap.values()) };
 }
 
+// Returns the backend's latest fetched_at as milliseconds (0 if no data yet).
+export async function fetchIngestCursor(): Promise<number> {
+  const res = await fetch(`${BASE_URL}/ingest/cursor`);
+  if (!res.ok) return 0;
+  const data: { cursor: number } = await res.json();
+  return (data.cursor ?? 0) * 1000;
+}
+
 export async function ingestComments(
   comments: AskRedditComment[],
   postTitles: Map<string, string>,
