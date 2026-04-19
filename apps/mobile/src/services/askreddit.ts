@@ -2,6 +2,15 @@ import { AskRedditComment, AskRedditPost } from '../types';
 
 const HEADERS = { 'User-Agent': 'stashpile/1.0' };
 
+const HTML_ENTITIES: Record<string, string> = {
+  '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"',
+  '&#39;': "'", '&apos;': "'", '&#x27;': "'", '&nbsp;': ' ',
+};
+
+function decodeEntities(text: string): string {
+  return text.replace(/&[a-zA-Z0-9#]+;/g, m => HTML_ENTITIES[m] ?? m);
+}
+
 export async function fetchAskRedditBatch(limit = 20): Promise<{
   posts: AskRedditPost[];
   comments: AskRedditComment[];
@@ -17,7 +26,7 @@ export async function fetchAskRedditBatch(limit = 20): Promise<{
     .filter((c: any) => !c.data.stickied)
     .map((c: any): AskRedditPost => ({
       postId: c.data.id,
-      title: c.data.title,
+      title: decodeEntities(c.data.title),
       score: c.data.score,
       numComments: c.data.num_comments,
       fetchedAt: now,
@@ -60,7 +69,7 @@ function flattenComments(
       commentId: d.id,
       postId,
       parentId,
-      body: d.body.trim(),
+      body: decodeEntities(d.body.trim()),
       score: d.score ?? 0,
       depth,
       fetchedAt: now,
