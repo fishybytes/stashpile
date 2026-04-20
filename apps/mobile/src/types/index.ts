@@ -1,5 +1,28 @@
 export type Source = 'reddit' | 'hackernews' | 'rss';
 
+export interface AskRedditPost {
+  postId: string;
+  title: string;
+  score: number;
+  numComments: number;
+  fetchedAt: number;
+}
+
+export interface AskRedditComment {
+  commentId: string;
+  postId: string;
+  parentId: string | null;
+  author: string;
+  body: string;
+  score: number;
+  depth: number;
+  fetchedAt: number;
+  // Populated after backend ranking — not persisted between sessions
+  topTopic?: string;
+  topicScore?: number;
+  userSimilarity?: number;
+}
+
 export interface Article {
   id: string;
   source: Source;
