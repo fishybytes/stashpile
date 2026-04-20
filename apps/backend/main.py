@@ -14,6 +14,7 @@ import json
 import logging
 import math
 import os
+import re
 import sqlite3
 import threading
 from contextlib import asynccontextmanager
@@ -30,6 +31,8 @@ log = logging.getLogger(__name__)
 
 DB_PATH = os.environ.get("DB_PATH", "/var/lib/stashpile/stashpile.db")
 _db_lock = threading.Lock()
+
+# ─── Fixed topic labels ───────────────────────────────────────────────────────
 
 TOPICS = [
     "technology & software",
@@ -59,6 +62,22 @@ TOPICS = [
     "news & current events",
 ]
 
+# Below this max fixed-topic similarity → try dynamic topics
+NEW_TOPIC_THRESHOLD = 0.25
+# Similarity needed to join an existing dynamic topic rather than create a new one
+DYNAMIC_MATCH_THRESHOLD = 0.50
+
+STOP_WORDS = {
+    'a','an','the','is','it','in','of','to','and','or','for','with','this','that',
+    'i','my','me','we','you','he','she','they','what','how','why','when','where',
+    'which','who','does','do','did','have','has','had','was','were','be','been',
+    'being','are','not','no','but','by','on','at','from','as','if','so','up',
+    'out','about','more','some','can','just','would','could','should','will',
+    'than','then','there','their','its','your','our','like','get','got','one',
+    'all','also','even','very','much','only','still','well','too','want','need',
+    'make','think','know','people','thing','things','really','going','said','says',
+}
+
 # ─── DB ───────────────────────────────────────────────────────────────────────
 
 def get_conn() -> sqlite3.Connection:
@@ -73,19 +92,29 @@ def init_db():
     with get_conn() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS comments (
-                comment_id  TEXT PRIMARY KEY,
-                post_id     TEXT NOT NULL,
-                post_title  TEXT NOT NULL DEFAULT '',
-                author      TEXT NOT NULL DEFAULT '',
-                body        TEXT NOT NULL,
-                score       INTEGER DEFAULT 0,
-                depth       INTEGER DEFAULT 0,
-                fetched_at  REAL NOT NULL DEFAULT (unixepoch()),
-                embedding   TEXT,
-                top_topic   TEXT,
-                topic_score REAL
+                comment_id       TEXT PRIMARY KEY,
+                post_id          TEXT NOT NULL,
+                post_title       TEXT NOT NULL DEFAULT '',
+                author           TEXT NOT NULL DEFAULT '',
+                body             TEXT NOT NULL,
+                score            INTEGER DEFAULT 0,
+                depth            INTEGER DEFAULT 0,
+                fetched_at       REAL NOT NULL DEFAULT (unixepoch()),
+                embedding        TEXT,
+                top_topic        TEXT,
+                topic_score      REAL,
+                dynamic_topic_id INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_comments_fetched ON comments (fetched_at DESC);
+
+            CREATE TABLE IF NOT EXISTS dynamic_topics (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT NOT NULL,
+                centroid     TEXT NOT NULL,
+                member_count INTEGER DEFAULT 1,
+                created_at   REAL NOT NULL DEFAULT (unixepoch()),
+                updated_at   REAL NOT NULL DEFAULT (unixepoch())
+            );
 
             CREATE TABLE IF NOT EXISTS events (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,10 +133,10 @@ def init_db():
                 updated_at  REAL NOT NULL DEFAULT (unixepoch())
             );
         """)
-        # Migrate existing schema (no-op if columns already exist)
         for col in [
             "ALTER TABLE comments ADD COLUMN top_topic TEXT",
             "ALTER TABLE comments ADD COLUMN topic_score REAL",
+            "ALTER TABLE comments ADD COLUMN dynamic_topic_id INTEGER",
         ]:
             try:
                 conn.execute(col)
@@ -125,7 +154,7 @@ def load_model():
     global model, topic_embeddings
     log.info("Loading all-MiniLM-L6-v2...")
     model = SentenceTransformer("all-MiniLM-L6-v2")
-    log.info("Embedding %d topic labels...", len(TOPICS))
+    log.info("Embedding %d fixed topic labels...", len(TOPICS))
     topic_embeddings = model.encode(
         TOPICS, batch_size=64, show_progress_bar=False, normalize_embeddings=True
     )
@@ -134,13 +163,80 @@ def load_model():
 def embed_texts(texts: list[str]) -> np.ndarray:
     return model.encode(texts, batch_size=64, show_progress_bar=False, normalize_embeddings=True)
 
-def classify_comment(emb: np.ndarray) -> tuple[str, float]:
-    """Returns (top_topic, score) for a normalised comment embedding."""
-    if topic_embeddings is None:
-        return ("", 0.0)
-    sims = topic_embeddings @ emb
-    idx = int(np.argmax(sims))
-    return (TOPICS[idx], float(sims[idx]))
+# ─── Topic classification ─────────────────────────────────────────────────────
+
+def extract_topic_name(texts: list[str]) -> str:
+    """Derive a short name from a list of texts using word frequency."""
+    counts: dict[str, int] = {}
+    for text in texts:
+        for word in re.findall(r'\b[a-z]{4,}\b', text.lower()):
+            if word not in STOP_WORDS:
+                counts[word] = counts.get(word, 0) + 1
+    if not counts:
+        return "general"
+    top = sorted(counts, key=lambda w: -counts[w])[:3]
+    return ' '.join(top)
+
+def classify_comment(
+    emb: np.ndarray,
+    body: str,
+    post_title: str,
+    conn: sqlite3.Connection,
+) -> tuple[str, float, int | None]:
+    """
+    Returns (topic_name, score, dynamic_topic_id_or_None).
+
+    1. If the comment fits a fixed topic well enough → return it.
+    2. Otherwise check existing dynamic topics; join if similar enough.
+    3. If nothing matches → create a new dynamic topic named from the text.
+    """
+    # 1. Fixed topics
+    if topic_embeddings is not None:
+        sims = topic_embeddings @ emb
+        best_idx = int(np.argmax(sims))
+        best_sim = float(sims[best_idx])
+        if best_sim >= NEW_TOPIC_THRESHOLD:
+            return (TOPICS[best_idx], best_sim, None)
+
+    # 2. Existing dynamic topics (load centroid from DB, compare in-memory)
+    dyn_rows = conn.execute(
+        "SELECT id, name, centroid, member_count FROM dynamic_topics ORDER BY member_count DESC LIMIT 500"
+    ).fetchall()
+
+    best_id, best_sim, best_name = None, -1.0, ""
+    for row in dyn_rows:
+        centroid = np.array(json.loads(row["centroid"]), dtype=np.float32)
+        sim = float(np.dot(emb, centroid))
+        if sim > best_sim:
+            best_id, best_sim, best_name = row["id"], sim, row["name"]
+
+    if best_id is not None and best_sim >= DYNAMIC_MATCH_THRESHOLD:
+        # Update centroid with running mean, then re-normalise
+        row = conn.execute(
+            "SELECT centroid, member_count FROM dynamic_topics WHERE id = ?", (best_id,)
+        ).fetchone()
+        n = row["member_count"]
+        old_c = np.array(json.loads(row["centroid"]), dtype=np.float32)
+        new_c = (old_c * n + emb) / (n + 1)
+        norm = np.linalg.norm(new_c)
+        if norm > 0:
+            new_c /= norm
+        conn.execute(
+            """UPDATE dynamic_topics
+               SET centroid = ?, member_count = member_count + 1, updated_at = unixepoch()
+               WHERE id = ?""",
+            (json.dumps(new_c.tolist()), best_id),
+        )
+        return (best_name, best_sim, best_id)
+
+    # 3. New dynamic topic
+    name = extract_topic_name([post_title, body])
+    cursor = conn.execute(
+        "INSERT INTO dynamic_topics (name, centroid, member_count, created_at, updated_at) VALUES (?,?,1,unixepoch(),unixepoch())",
+        (name, json.dumps(emb.tolist())),
+    )
+    log.info("Created dynamic topic '%s'", name)
+    return (name, 1.0, cursor.lastrowid)
 
 # ─── Embed + store ────────────────────────────────────────────────────────────
 
@@ -165,26 +261,26 @@ def store_comments(records: list[dict]):
 
     log.info("Embedding %d new comments...", len(new))
     embeddings = embed_texts([r["body"] for r in new])
-    topics = [classify_comment(emb) for emb in embeddings]
 
     with _db_lock:
         with get_conn() as conn:
-            conn.executemany(
-                """
-                INSERT INTO comments
-                    (comment_id, post_id, post_title, author, body, score, depth,
-                     fetched_at, embedding, top_topic, topic_score)
-                VALUES (?,?,?,?,?,?,?,unixepoch(),?,?,?)
-                ON CONFLICT (comment_id) DO UPDATE SET
-                    score = excluded.score, fetched_at = unixepoch()
-                """,
-                [
+            for r, emb in zip(new, embeddings):
+                topic_name, topic_score, dyn_id = classify_comment(
+                    emb, r["body"], r["post_title"], conn
+                )
+                conn.execute(
+                    """
+                    INSERT INTO comments
+                        (comment_id, post_id, post_title, author, body, score, depth,
+                         fetched_at, embedding, top_topic, topic_score, dynamic_topic_id)
+                    VALUES (?,?,?,?,?,?,?,unixepoch(),?,?,?,?)
+                    ON CONFLICT (comment_id) DO UPDATE SET
+                        score = excluded.score, fetched_at = unixepoch()
+                    """,
                     (r["comment_id"], r["post_id"], r["post_title"], r["author"],
                      r["body"], r["score"], r["depth"],
-                     json.dumps(emb.tolist()), topic, score)
-                    for r, emb, (topic, score) in zip(new, embeddings, topics)
-                ],
-            )
+                     json.dumps(emb.tolist()), topic_name, topic_score, dyn_id),
+                )
     log.info("Stored %d comments", len(new))
 
 # ─── User profile ─────────────────────────────────────────────────────────────
@@ -286,7 +382,6 @@ def build_feed(user_id: str, seen_ids: set[str], limit: int) -> list[dict]:
     for _, sim, row in scored[:limit]:
         row.pop("embedding", None)
         row.pop("fetched_at", None)
-        # user_similarity: map [-1,1] → [0,1] for easier display
         row["user_similarity"] = round((sim + 1) / 2, 3) if sim is not None else None
         result.append(row)
     return result
@@ -333,12 +428,12 @@ def get_ingest_cursor():
     with get_conn() as conn:
         row = conn.execute("SELECT MAX(fetched_at) AS latest FROM comments").fetchone()
         cursor = row["latest"] if row and row["latest"] else 0
-    return {"cursor": cursor}  # unix seconds; 0 means no data yet
+    return {"cursor": cursor}
 
 class EventIn(BaseModel):
     user_id:     str = "default"
     comment_id:  str
-    event_type:  str   # view | save | skip
+    event_type:  str
     duration_ms: int = 0
 
 @app.post("/events")
@@ -365,18 +460,33 @@ def get_profile(user_id: str = "default"):
             "SELECT embedding, event_count FROM user_profiles WHERE user_id = ?", (user_id,)
         ).fetchone()
 
-    if not profile or not profile["embedding"] or topic_embeddings is None:
-        return {"top_topics": [], "event_count": 0}
+        if not profile or not profile["embedding"]:
+            return {"top_topics": [], "event_count": 0}
 
-    u_emb = np.array(json.loads(profile["embedding"]), dtype=np.float32)
-    sims = topic_embeddings @ u_emb   # shape (n_topics,)
+        u_emb = np.array(json.loads(profile["embedding"]), dtype=np.float32)
 
-    # Sort all topics by similarity, return top 10 with positive scores
-    order = np.argsort(sims)[::-1]
+        all_topics: list[dict] = []
+
+        # Fixed topics
+        if topic_embeddings is not None:
+            sims = topic_embeddings @ u_emb
+            for i, sim in enumerate(sims):
+                all_topics.append({"topic": TOPICS[i], "score": float(sim), "dynamic": False})
+
+        # Dynamic topics with enough members to be meaningful
+        dyn_rows = conn.execute(
+            "SELECT name, centroid FROM dynamic_topics WHERE member_count >= 3"
+        ).fetchall()
+        for row in dyn_rows:
+            centroid = np.array(json.loads(row["centroid"]), dtype=np.float32)
+            sim = float(np.dot(u_emb, centroid))
+            all_topics.append({"topic": row["name"], "score": sim, "dynamic": True})
+
+    all_topics.sort(key=lambda t: -t["score"])
     top_topics = [
-        {"topic": TOPICS[i], "score": round(float(sims[i]), 3)}
-        for i in order[:10]
-        if sims[i] > 0
+        {"topic": t["topic"], "score": round(t["score"], 3), "dynamic": t["dynamic"]}
+        for t in all_topics[:10]
+        if t["score"] > 0
     ]
 
     return {

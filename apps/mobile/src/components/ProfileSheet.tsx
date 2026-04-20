@@ -7,14 +7,17 @@ interface Props {
   onClose: () => void;
 }
 
-function TopicBar({ topic, score, maxScore }: { topic: string; score: number; maxScore: number }) {
+function TopicBar({ topic, score, maxScore, dynamic: isDynamic }: { topic: string; score: number; maxScore: number; dynamic: boolean }) {
   const pct = maxScore > 0 ? score / maxScore : 0;
   const label = topic.charAt(0).toUpperCase() + topic.slice(1);
   return (
     <View style={styles.topicRow}>
-      <Text style={styles.topicName} numberOfLines={1}>{label}</Text>
+      <View style={styles.topicLabelRow}>
+        <Text style={styles.topicName} numberOfLines={1}>{label}</Text>
+        {isDynamic && <Text style={styles.dynamicBadge}>new</Text>}
+      </View>
       <View style={styles.barTrack}>
-        <View style={[styles.barFill, { width: `${Math.round(pct * 100)}%` as any }]} />
+        <View style={[styles.barFill, isDynamic && styles.barFillDynamic, { width: `${Math.round(pct * 100)}%` as any }]} />
       </View>
       <Text style={styles.topicPct}>{Math.round(pct * 100)}%</Text>
     </View>
@@ -69,7 +72,7 @@ export function ProfileSheet({ visible, onClose }: Props) {
             <>
               <Text style={styles.sectionLabel}>Top interests</Text>
               {topics.map((t: TopicScore) => (
-                <TopicBar key={t.topic} topic={t.topic} score={t.score} maxScore={maxScore} />
+                <TopicBar key={t.topic} topic={t.topic} score={t.score} maxScore={maxScore} dynamic={t.dynamic} />
               ))}
               {profile && profile.event_count > 0 && (
                 <Text style={styles.eventCount}>
@@ -131,10 +134,27 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 12,
   },
-  topicName: {
+  topicLabelRow: {
     width: 160,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  topicName: {
+    flexShrink: 1,
     fontSize: 14,
     color: '#e6edf3',
+  },
+  dynamicBadge: {
+    fontSize: 9,
+    color: '#58a6ff',
+    borderWidth: 1,
+    borderColor: '#1f4e79',
+    borderRadius: 3,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
   barTrack: {
     flex: 1,
@@ -147,6 +167,9 @@ const styles = StyleSheet.create({
     height: 6,
     backgroundColor: '#ff4500',
     borderRadius: 3,
+  },
+  barFillDynamic: {
+    backgroundColor: '#58a6ff',
   },
   topicPct: {
     width: 36,

@@ -18,6 +18,7 @@ export interface BackendComment {
 export interface TopicScore {
   topic: string;
   score: number;
+  dynamic: boolean;
 }
 
 export interface UserProfile {
