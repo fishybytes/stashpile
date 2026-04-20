@@ -21,6 +21,16 @@ stashpile/
 └── .github/workflows/    # GitHub Actions (workflow_dispatch deploy)
 ```
 
+## Prerequisites
+
+The AWS CLI is required for all infrastructure and deployment scripts. Install it if not present:
+
+```bash
+curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
+unzip -o /tmp/awscliv2.zip -d /tmp
+sudo /tmp/aws/install
+```
+
 ## AWS credentials
 
 Scripts load credentials from `.env.<environment>` if present. If that file does not exist, they fall back to AWS environment variables already set in the shell (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`). In Claude Code cloud, supply these environment variables directly — no `.env.dev` file is needed.
