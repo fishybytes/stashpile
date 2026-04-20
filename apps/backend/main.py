@@ -62,10 +62,9 @@ TOPICS = [
     "news & current events",
 ]
 
-# Below this max fixed-topic similarity → try dynamic topics
-NEW_TOPIC_THRESHOLD = 0.25
-# Similarity needed to join an existing dynamic topic rather than create a new one
-DYNAMIC_MATCH_THRESHOLD = 0.50
+# Below this max fixed-topic similarity → fall back to the closest fixed topic anyway
+# (dynamic topics produce noisy single-comment names, so we avoid them)
+NEW_TOPIC_THRESHOLD = 0.0
 
 STOP_WORDS = {
     'a','an','the','is','it','in','of','to','and','or','for','with','this','that',
@@ -183,60 +182,13 @@ def classify_comment(
     post_title: str,
     conn: sqlite3.Connection,
 ) -> tuple[str, float, int | None]:
-    """
-    Returns (topic_name, score, dynamic_topic_id_or_None).
-
-    1. If the comment fits a fixed topic well enough → return it.
-    2. Otherwise check existing dynamic topics; join if similar enough.
-    3. If nothing matches → create a new dynamic topic named from the text.
-    """
-    # 1. Fixed topics
+    """Returns (topic_name, score, None) — always the closest fixed topic."""
     if topic_embeddings is not None:
         sims = topic_embeddings @ emb
         best_idx = int(np.argmax(sims))
         best_sim = float(sims[best_idx])
-        if best_sim >= NEW_TOPIC_THRESHOLD:
-            return (TOPICS[best_idx], best_sim, None)
-
-    # 2. Existing dynamic topics (load centroid from DB, compare in-memory)
-    dyn_rows = conn.execute(
-        "SELECT id, name, centroid, member_count FROM dynamic_topics ORDER BY member_count DESC LIMIT 500"
-    ).fetchall()
-
-    best_id, best_sim, best_name = None, -1.0, ""
-    for row in dyn_rows:
-        centroid = np.array(json.loads(row["centroid"]), dtype=np.float32)
-        sim = float(np.dot(emb, centroid))
-        if sim > best_sim:
-            best_id, best_sim, best_name = row["id"], sim, row["name"]
-
-    if best_id is not None and best_sim >= DYNAMIC_MATCH_THRESHOLD:
-        # Update centroid with running mean, then re-normalise
-        row = conn.execute(
-            "SELECT centroid, member_count FROM dynamic_topics WHERE id = ?", (best_id,)
-        ).fetchone()
-        n = row["member_count"]
-        old_c = np.array(json.loads(row["centroid"]), dtype=np.float32)
-        new_c = (old_c * n + emb) / (n + 1)
-        norm = np.linalg.norm(new_c)
-        if norm > 0:
-            new_c /= norm
-        conn.execute(
-            """UPDATE dynamic_topics
-               SET centroid = ?, member_count = member_count + 1, updated_at = unixepoch()
-               WHERE id = ?""",
-            (json.dumps(new_c.tolist()), best_id),
-        )
-        return (best_name, best_sim, best_id)
-
-    # 3. New dynamic topic
-    name = extract_topic_name([post_title, body])
-    cursor = conn.execute(
-        "INSERT INTO dynamic_topics (name, centroid, member_count, created_at, updated_at) VALUES (?,?,1,unixepoch(),unixepoch())",
-        (name, json.dumps(emb.tolist())),
-    )
-    log.info("Created dynamic topic '%s'", name)
-    return (name, 1.0, cursor.lastrowid)
+        return (TOPICS[best_idx], best_sim, None)
+    return ("general", 0.0, None)
 
 # ─── Embed + store ────────────────────────────────────────────────────────────
 
@@ -465,26 +417,18 @@ def get_profile(user_id: str = "default"):
 
         u_emb = np.array(json.loads(profile["embedding"]), dtype=np.float32)
 
-        all_topics: list[dict] = []
+        if topic_embeddings is None:
+            return {"top_topics": [], "event_count": int(profile["event_count"])}
 
-        # Fixed topics
-        if topic_embeddings is not None:
-            sims = topic_embeddings @ u_emb
-            for i, sim in enumerate(sims):
-                all_topics.append({"topic": TOPICS[i], "score": float(sim), "dynamic": False})
-
-        # Dynamic topics with enough members to be meaningful
-        dyn_rows = conn.execute(
-            "SELECT name, centroid FROM dynamic_topics WHERE member_count >= 3"
-        ).fetchall()
-        for row in dyn_rows:
-            centroid = np.array(json.loads(row["centroid"]), dtype=np.float32)
-            sim = float(np.dot(u_emb, centroid))
-            all_topics.append({"topic": row["name"], "score": sim, "dynamic": True})
+        sims = topic_embeddings @ u_emb
+        all_topics = [
+            {"topic": TOPICS[i], "score": float(sims[i]), "dynamic": False}
+            for i in range(len(TOPICS))
+        ]
 
     all_topics.sort(key=lambda t: -t["score"])
     top_topics = [
-        {"topic": t["topic"], "score": round(t["score"], 3), "dynamic": t["dynamic"]}
+        {"topic": t["topic"], "score": round(t["score"], 3), "dynamic": False}
         for t in all_topics[:10]
         if t["score"] > 0
     ]
