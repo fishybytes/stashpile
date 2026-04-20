@@ -254,9 +254,10 @@ export function SwipeFeed() {
         ingestComments(toIngest, postTitles).catch(() => {});
       }
 
-      // Fetch ranked + classified feed from backend
+      // Fetch classified feed from backend — no seen filter so top_topic gets
+      // written back for all local comments, not just ones not yet viewed
       try {
-        const { posts: rankedPosts, comments: rankedComments } = await fetchFeed('default', [...seenIds.current], 60);
+        const { posts: rankedPosts, comments: rankedComments } = await fetchFeed('default', [], 200);
         upsertAskRedditPosts(rankedPosts);
         upsertAskRedditComments(rankedComments);
       } catch {
