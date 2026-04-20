@@ -238,28 +238,27 @@ export function SwipeFeed() {
       // Ask backend what it already has so we only ship new content
       const cursorMs = await fetchIngestCursor().catch(() => 0);
 
+      // Fetch ranked feed first so we get classifications from the previous ingest cycle
+      try {
+        const { posts: rankedPosts, comments: rankedComments } = await fetchFeed('default', [...seenIds.current], 60);
+        upsertAskRedditPosts(rankedPosts);
+        upsertAskRedditComments(rankedComments);
+      } catch {
+        // backend unavailable — continue with local content
+      }
+
       // Fetch raw content from Reddit/HN (residential IP, no blocking)
       const { posts: freshPosts, comments: freshComments } = await fetchAskRedditBatch(20);
       upsertAskRedditPosts(freshPosts);
       // Upsert preserves original fetched_at for existing comments (ON CONFLICT score only)
       upsertAskRedditComments(freshComments);
 
-      // Ship only comments the backend hasn't seen yet (fetched_at > cursor)
+      // Ship only comments the backend hasn't seen yet — they'll be classified for the next sync
       const freshIds = freshComments.map(c => c.commentId);
       const toIngest = getCommentsSince(freshIds, cursorMs);
       if (toIngest.length > 0) {
         const postTitles = new Map(freshPosts.map(p => [p.postId, p.title]));
         ingestComments(toIngest, postTitles).catch(() => {});
-      }
-
-      // Get ranked feed back from backend (falls back to local DB on failure)
-      let posts: AskRedditPost[], comments: AskRedditComment[];
-      try {
-        ({ posts, comments } = await fetchFeed('default', [...seenIds.current], 60));
-        upsertAskRedditPosts(posts);
-        upsertAskRedditComments(comments);
-      } catch {
-        // backend unavailable — just use what we fetched locally
       }
 
       const fresh = loadFromDb();
