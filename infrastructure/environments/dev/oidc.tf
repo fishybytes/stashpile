@@ -58,10 +58,22 @@ resource "aws_iam_role_policy" "github_actions" {
         ]
       },
       {
-        # SSM — run commands + session manager
+        # SSM — run commands, session manager, parameter store
         Effect   = "Allow"
         Action   = ["ssm:*"]
         Resource = "*"
+      },
+      {
+        # Route53 — manage hosted zones and records
+        Effect   = "Allow"
+        Action   = ["route53:*"]
+        Resource = "*"
+      },
+      {
+        # Random provider needs no AWS perms, but Secrets Manager for DB passwords
+        Effect   = "Allow"
+        Action   = ["secretsmanager:*"]
+        Resource = "arn:aws:secretsmanager:*:*:secret:stashpile-*"
       }
     ]
   })
