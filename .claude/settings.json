@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -fsSL https://awscli.amazonaws.com/* -o *)",
+      "Bash(unzip -o * -d *)",
+      "Bash(sudo ./aws/install *)",
+      "Bash(sudo ./aws/install)",
+      "Bash(aws *)",
+      "Bash(bash infrastructure/scripts/*)"
+    ]
+  }
+}
