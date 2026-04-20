@@ -105,6 +105,7 @@ export function CommentCard({ comment, post, parentComment, onParentTap, replies
             <Text style={styles.commentScore}>↑{comment.score.toLocaleString()}</Text>
             {comment.author ? <Text style={styles.commentAuthor}>u/{comment.author}</Text> : null}
             <View style={styles.metaSpacer} />
+            <Text style={styles.debugText}>topic={String(comment.topTopic)}</Text>
             {comment.topTopic && (
               <Pressable style={styles.topicPill} onPress={() => setInfoVisible(v => !v)} hitSlop={8}>
                 <Text style={styles.topicPillText} numberOfLines={1}>{capitalize(comment.topTopic)}</Text>
@@ -237,6 +238,10 @@ const styles = StyleSheet.create({
   },
   metaSpacer: {
     flex: 1,
+  },
+  debugText: {
+    fontSize: 10,
+    color: '#ff0000',
   },
   topicPill: {
     maxWidth: 140,
