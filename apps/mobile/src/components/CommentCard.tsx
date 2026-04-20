@@ -106,27 +106,21 @@ export function CommentCard({ comment, post, parentComment, onParentTap, replies
             {comment.author ? <Text style={styles.commentAuthor}>u/{comment.author}</Text> : null}
             <View style={styles.metaSpacer} />
             {comment.topTopic && (
-              <Pressable style={styles.infoBtn} onPress={() => setInfoVisible(v => !v)} hitSlop={8}>
-                <Text style={[styles.infoBtnText, infoVisible && styles.infoBtnActive]}>ⓘ</Text>
+              <Pressable style={styles.topicPill} onPress={() => setInfoVisible(v => !v)} hitSlop={8}>
+                <Text style={styles.topicPillText} numberOfLines={1}>{capitalize(comment.topTopic)}</Text>
               </Pressable>
             )}
           </View>
 
-          {infoVisible && comment.topTopic && (
+          {infoVisible && comment.userSimilarity != null && (
             <View style={styles.infoPanel}>
               <View style={styles.infoPanelRow}>
-                <Text style={styles.infoPanelLabel}>Topic</Text>
-                <Text style={styles.infoPanelValue}>{capitalize(comment.topTopic)}</Text>
-              </View>
-              {comment.userSimilarity != null && (
-                <View style={styles.infoPanelRow}>
-                  <Text style={styles.infoPanelLabel}>Taste match</Text>
-                  <View style={styles.matchBarWrap}>
-                    <View style={[styles.matchBar, { width: `${Math.round(comment.userSimilarity * 100)}%` as any }]} />
-                  </View>
-                  <Text style={styles.infoPanelValue}>{Math.round(comment.userSimilarity * 100)}%</Text>
+                <Text style={styles.infoPanelLabel}>Taste match</Text>
+                <View style={styles.matchBarWrap}>
+                  <View style={[styles.matchBar, { width: `${Math.round(comment.userSimilarity * 100)}%` as any }]} />
                 </View>
-              )}
+                <Text style={styles.infoPanelValue}>{Math.round(comment.userSimilarity * 100)}%</Text>
+              </View>
             </View>
           )}
           <Text style={[styles.commentBody, { fontSize, lineHeight: fontSize * 1.55 }]}>{comment.body}</Text>
@@ -244,15 +238,19 @@ const styles = StyleSheet.create({
   metaSpacer: {
     flex: 1,
   },
-  infoBtn: {
-    paddingHorizontal: 4,
+  topicPill: {
+    maxWidth: 140,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    backgroundColor: '#161b22',
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#30363d',
   },
-  infoBtnText: {
-    fontSize: 16,
-    color: '#484f58',
-  },
-  infoBtnActive: {
-    color: '#58a6ff',
+  topicPillText: {
+    fontSize: 11,
+    color: '#8b949e',
+    letterSpacing: 0.2,
   },
   infoPanel: {
     marginTop: 4,
